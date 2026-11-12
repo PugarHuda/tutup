@@ -34,7 +34,7 @@ Each listing burns **100 $WIF** through WIF's own `burn()`. Settlement records t
   - auction #1 create: https://robinhoodchain.blockscout.com/tx/0xd48e26d2709cf5fe53d83700af7ba8e81a72feb3d08973e7315f8b327f019a03
 
 ### Onchain agent identity
-Tutup's MCP server is **ERC-8004 agent #25584** in the IdentityRegistry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` on Robinhood Chain. Its registration file is https://tutup.vercel.app/agent.json, and it was registered in https://robinhoodchain.blockscout.com/tx/0x9eb7c762606b5d5b36907673b3b357e7950b72ea64a518c87336fee70d1fac31
+Tutup's MCP server is **ERC-8004 agent #25584** in the IdentityRegistry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` on Robinhood Chain. Its registration file is https://tutup.vercel.app/agent.json, and it was registered in https://robinhoodchain.blockscout.com/tx/0x9eb7c762606b5d5b36907673b3b357e7950b72ea64a518c87336fee70d1fac31 Agents and crawlers can also start from https://tutup.vercel.app/llms.txt.
 
 ### v3 auction #0
 70 $WIF paid in WETH, bond 50 $WIF, **minSold 40**. Bids were 30 @ 0.00000065 and 50 @ 0.0000006. Demand of 80 is at least 40, so both cleared at 0.0000006: 30 and 40 filled. `TutupFeed.latestRoundData()` now answers 60, which is 0.00000060 with 8 decimals.

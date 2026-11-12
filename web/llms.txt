@@ -1,0 +1,18 @@
+# Tutup
+
+> Sealed-bid uniform-price batch auctions for Robinhood Chain Stock Tokens and $WIF, for the hours the US market is closed. Bids are committed as hashes, revealed later, and every winner pays one clearing price. Every listing burns 100 $WIF, and an unrevealed bid's $WIF bond is burned too. No owner, no admin, no pause.
+
+- Chain: Robinhood Chain mainnet (chain id 4663), RPC https://rpc.mainnet.chain.robinhood.com
+- Contract: 0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428 (verified on Sourcify)
+- Clearing prices as a Chainlink AggregatorV3 feed (WIF/WETH): 0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE
+- ERC-8004 agent: #25584 in the IdentityRegistry 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+
+## For agents
+
+- [MCP server](https://tutup.vercel.app/api/mcp): Streamable HTTP, JSON-RPC. Tools: list_auctions, get_auction, market_status, weekend_prints, portfolio, corporate_actions, tx_finality, prepare_bid, prepare_reveal, prepare_settle. The prepare_* tools return unsigned calls, and the server never sees a key.
+- [ERC-8004 registration file](https://tutup.vercel.app/agent.json)
+
+## Docs
+
+- [How it works](https://tutup.vercel.app/app.html#docs): commit, reveal, settle, bonds, the keeper agent, Uniswap and Chainlink references
+- [Source and tests](https://github.com/PugarHuda/tutup): Solidity contract, Foundry unit, fuzz, invariant and mainnet-fork tests

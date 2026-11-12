@@ -68,6 +68,25 @@ async function feed(addr) {
   return { price: Number(p) / 1e8, ageHours: +((Date.now() / 1000 - Number(at)) / 3600).toFixed(2) };
 }
 
+// Check arguments against the tool's own inputSchema, so an agent gets "auction_id must be a non-negative
+// integer" instead of a BigInt conversion error from deep inside the handler.
+export function checkArgs(name, args = {}) {
+  const t = TOOLS.find((x) => x.name === name);
+  if (!t) return `unknown tool: ${name}. Call tools/list.`;
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return "arguments must be an object";
+  const { properties = {}, required = [] } = t.inputSchema;
+  for (const k of required) if (args[k] === undefined || args[k] === null || args[k] === "") return `missing required argument: ${k}`;
+  for (const [k, v] of Object.entries(args)) {
+    const want = properties[k]?.type;
+    if (!want) return `unknown argument: ${k} (expected ${Object.keys(properties).join(", ") || "none"})`;
+    if (want === "number" && !(Number.isSafeInteger(Number(v)) && Number(v) >= 0 && String(v).trim() !== "")) return `${k} must be a non-negative integer`;
+    if (want === "string" && typeof v !== "string") return `${k} must be a string`;
+    if (want === "array" && !Array.isArray(v)) return `${k} must be an array`;
+    if (want === "object" && (typeof v !== "object" || Array.isArray(v))) return `${k} must be an object`;
+  }
+  return null;
+}
+
 const TOOLS = [
   { name: "list_auctions", description: "List Tutup sealed-bid auctions on Robinhood Chain, newest first, with phase and time left.", inputSchema: { type: "object", properties: { limit: { type: "number", description: "max results, default 20" } } } },
   { name: "get_auction", description: "One auction: lot, reserve, bond, minimum sold, phase, revealed bids once commits close, and the clearing result after settlement.", inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
@@ -208,6 +227,8 @@ export default async function handler(req, res) {
     if (msg.method === "tools/list") return reply({ tools: TOOLS });
     if (msg.method === "tools/call") {
       try {
+        const bad = checkArgs(msg.params?.name, msg.params?.arguments);
+        if (bad) return reply({ content: [{ type: "text", text: bad }], isError: true });
         const out = await run(msg.params?.name, msg.params?.arguments);
         return reply({ content: [{ type: "text", text: json(out) }] });
       } catch (e) {
