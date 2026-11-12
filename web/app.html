@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://rpc.mainnet.chain.robinhood.com http://127.0.0.1:8545; object-src 'none'; base-uri 'none'" />
+<title>Tutup Desk — sealed bids when the market is closed</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237585e4'/><rect x='9' y='14' width='14' height='10' rx='2' fill='white'/><path d='M12 14v-3a4 4 0 0 1 8 0v3' stroke='white' stroke-width='2.5' fill='none'/></svg>" />
+<meta name="theme-color" content="#7585e4">
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="desk.css" />
+</head>
+<body>
+<div class="desk">
+  <aside class="side">
+    <a class="brand" href="index.html">
+      <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="#fff"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="#fff" stroke-width="2.4"/></svg></div>
+      <div><b class="pix">TUTUP</b><small>robinhood chain · desk</small></div>
+    </a>
+    <div class="rpc"><span class="dot"></span><span id="net">robinhood chain · mainnet</span></div>
+    <a class="newbtn" href="#create">+ List a lot</a>
+    <nav id="nav">
+      <a href="#auctions" data-view="auctions"><i>▦</i>Auctions</a>
+      <a href="#create" data-view="create"><i>⇄</i>List a lot</a>
+      <a href="#mine" data-view="mine"><i>◷</i>My bids</a>
+      <a href="#market" data-view="market"><i>◔</i>Market hours</a>
+      <a href="#burns" data-view="burns"><i>▲</i>$WIF burns</a>
+      <a href="#docs" data-view="docs"><i>▤</i>Docs</a>
+    </nav>
+    <button id="connect" class="wallet">Connect wallet</button>
+  </aside>
+
+  <main class="main"><div class="inner" id="view"></div></main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

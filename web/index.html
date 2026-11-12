@@ -1,173 +1,128 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://rpc.mainnet.chain.robinhood.com http://127.0.0.1:8545; object-src 'none'; base-uri 'none'" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://rpc.mainnet.chain.robinhood.com; object-src 'none'; base-uri 'none'">
 <title>Tutup — sealed bids when the market is closed</title>
-<meta name="description" content="Sealed-bid batch auctions for Stock Tokens on Robinhood Chain, for the hours the market is shut. Bonds in $WIF." />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237585e4'/><stop offset='1' stop-color='%23b3a6dd'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><rect x='9' y='14' width='14' height='10' rx='2' fill='white'/><path d='M12 14v-3a4 4 0 0 1 8 0v3' stroke='white' stroke-width='2.5' fill='none'/></svg>" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-<style>
-  :root {
-    --bg: #e4e9f6; --ink: #14151a; --ink-2: #33384a; --muted: #6b7186; --faint: #9aa0b2;
-    --card: #fff; --line: #e4e8f2; --side: #0b0b0e; --side-2: #1c1d24;
-    --violet: #6c7fe0; --grad: linear-gradient(135deg, #7585e4, #b3a6dd);
-    --ok: #0b6b45; --ok-dim: #d8f6e7; --warn: #8a5300; --warn-dim: #fff1cf; --burn: #b42318; --burn-dim: #ffe3df;
-    --shadow: 0 18px 50px -28px rgba(70, 60, 160, .35), 0 1px 3px rgba(70, 60, 160, .06);
-    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body { background: var(--bg); color: var(--ink); font: 13.5px/1.55 var(--mono); -webkit-font-smoothing: antialiased; }
-  ::selection { background: #7e93e6; color: #fff; }
-  a { color: var(--violet); }
-  :focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; border-radius: 6px; }
-  button, input, select { font: inherit; }
-
-  /* desk shell, after Segel */
-  .desk { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-  .side { background: var(--side); color: #fff; padding: 18px 14px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; height: 100vh; }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand .logo { width: 36px; height: 36px; border-radius: 9px; background: var(--grad); display: grid; place-items: center; }
-  .brand b { font-size: 17px; letter-spacing: .14em; }
-  .brand small { display: block; color: var(--faint); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
-  .rpc { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #a9b0c4; background: #15161b; border-radius: 9px; padding: 8px 10px; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc97; box-shadow: 0 0 0 3px rgba(61, 220, 151, .15); }
-  .newbtn { border: 0; border-radius: 11px; background: var(--grad); color: #fff; padding: 12px; font-weight: 500; cursor: pointer; }
-  nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-  nav a { color: #c9cede; text-decoration: none; padding: 9px 12px; border-radius: 9px; }
-  nav a:hover { background: var(--side-2); color: #fff; }
-  .wallet { border: 0; border-radius: 11px; background: #fff; color: var(--ink); padding: 12px; font-weight: 500; cursor: pointer; }
-
-  .main { min-width: 0; background-image: repeating-linear-gradient(90deg, rgba(126, 147, 230, .06) 0, rgba(126, 147, 230, .06) 1px, transparent 1px, transparent 64px); }
-  .inner { max-width: 1120px; margin: 0 auto; padding: clamp(20px, 3.4vw, 40px) clamp(16px, 4vw, 44px) 64px; }
-  .eyebrow { color: var(--faint); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 6px; }
-  h1 { font-size: clamp(28px, 4.6vw, 48px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 14px; text-transform: uppercase; }
-  h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  h2 { font-size: 20px; margin: 40px 0 14px; }
-  .lead { color: var(--ink-2); max-width: 680px; margin: 0; }
-
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 28px 0 0; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
-  .stat { padding: 14px 16px; }
-  .stat .k { color: var(--muted); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; }
-  .stat .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
-  .stat.burn .v { color: var(--burn); }
-  .badge { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 99px; margin-top: 6px; }
-  .badge.closed { background: var(--warn-dim); color: var(--warn); }
-  .badge.open { background: var(--ok-dim); color: var(--ok); }
-  .badge.ph { background: #eef0fb; color: var(--violet); margin: 0; }
-
-  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
-  .step { padding: 16px; }
-  .step .n { color: var(--violet); font-weight: 700; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
-  .step p { margin: 6px 0 0; color: var(--ink-2); }
-
-  #auctions { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-  .auction { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-  .auction .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .auction .lot { font-weight: 700; font-size: 17px; }
-  .row { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
-  .row b { color: var(--ink); font-weight: 500; }
-  .empty { padding: 28px; text-align: center; color: var(--muted); }
-
-  .form { display: grid; gap: 10px; }
-  .panel { padding: 18px; }
-  label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); letter-spacing: .04em; }
-  input, select { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; color: var(--ink); width: 100%; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .btn { border: 0; border-radius: 10px; background: var(--grad); color: #fff; padding: 11px 14px; font-weight: 500; cursor: pointer; }
-  .btn:disabled { opacity: .5; cursor: not-allowed; }
-  .note { color: var(--muted); font-size: 12px; margin: 0; }
-
-  #toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); background: var(--side); color: #fff; border-radius: 10px; padding: 10px 14px; max-width: calc(100vw - 32px); font-size: 12.5px; display: none; z-index: 50; box-shadow: var(--shadow); }
-  footer { margin-top: 48px; color: var(--muted); font-size: 11px; }
-
-  @media (max-width: 960px) { .stats { grid-template-columns: 1fr 1fr; } .steps { grid-template-columns: 1fr; } }
-  @media (max-width: 760px) {
-    .desk { grid-template-columns: 1fr; }
-    .side { position: sticky; z-index: 40; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 12px 16px; gap: 10px; }
-    .wallet { margin-left: auto; padding: 8px 12px; }
-    nav { flex-direction: row; flex-basis: 100%; overflow-x: auto; }
-    nav a { white-space: nowrap; }
-    .rpc, .newbtn { display: none; }
-  }
-  @media (max-width: 430px) { .stats, .two { grid-template-columns: 1fr; } }
-</style>
+<meta name="description" content="Sealed-bid batch auctions for Stock Tokens on Robinhood Chain, for the hours the market is shut. One clearing price, bonds in $WIF, nothing for being first.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237585e4'/><rect x='9' y='14' width='14' height='10' rx='2' fill='white'/><path d='M12 14v-3a4 4 0 0 1 8 0v3' stroke='white' stroke-width='2.5' fill='none'/></svg>">
+<meta name="theme-color" content="#7585e4">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="landing.css">
 </head>
 <body>
-<div class="desk">
-  <aside class="side">
-    <div class="brand">
-      <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="#fff"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="#fff" stroke-width="2.4"/></svg></div>
-      <div><b>TUTUP</b><small>robinhood chain</small></div>
-    </div>
-    <div class="rpc"><span class="dot"></span><span id="net">robinhood chain · mainnet</span></div>
-    <button class="newbtn" onclick="location.hash='#list'">+ list a lot</button>
-    <nav>
-      <a href="#auctions-h">auctions</a>
-      <a href="#list">list a lot</a>
-      <a href="#how">how it works</a>
-      <a id="c-link" target="_blank" rel="noopener">contract ↗</a>
-      <a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">source ↗</a>
+
+  <header class="nav">
+    <div class="brand"><span class="pix" style="font-weight:600;font-size:13px;opacity:.85">[&#9679;]</span><span class="pix" style="font-weight:700;font-size:21px;letter-spacing:1px">TUTUP</span></div>
+    <nav class="links">
+      <a href="#why">Why</a><a href="#how">How it works</a><a href="#wif">$WIF</a>
+      <a class="btn-light" href="app.html">Launch app <span style="font-size:13px">&#8599;</span></a>
     </nav>
-    <button id="connect" class="wallet">Connect wallet</button>
-  </aside>
+  </header>
 
-  <main class="main">
-    <div class="inner">
-      <p class="eyebrow">sealed-bid batch auctions · bonds in $wif</p>
-      <h1>The market is closed.<br /><span>The auction isn't.</span></h1>
-      <p class="lead">Stock Tokens trade 24/7, but their official price feeds stop at the close and nobody can mint or burn on weekends. Tutup runs sealed-bid batch auctions for those hours: bid in secret, reveal together, everyone pays one price. Being first wins nothing.</p>
-
-      <section class="stats">
-        <div class="card stat burn"><div class="k">$wif burned</div><div class="v" id="s-burned">…</div></div>
-        <div class="card stat"><div class="k">auctions</div><div class="v" id="s-count">…</div></div>
-        <div class="card stat"><div class="k">nvda · 24/5 feed</div><div class="v" id="s-nvda5">…</div><div id="s-mkt"></div></div>
-        <div class="card stat"><div class="k">nvda · 24/7 feed</div><div class="v" id="s-nvda7">…</div></div>
-      </section>
-
-      <h2 id="auctions-h">Auctions</h2>
-      <div id="auctions"><div class="card empty">loading…</div></div>
-
-      <h2 id="list">List a lot</h2>
-      <div class="card panel">
-        <form id="create" class="form">
-          <div class="two">
-            <label>LOT TOKEN<select name="lot" id="lot"></select></label>
-            <label>PAID IN<select name="quote" id="quote"></select></label>
-          </div>
-          <div class="two">
-            <label>AMOUNT<input name="amount" required inputmode="decimal" placeholder="1" /></label>
-            <label>RESERVE PRICE (PER TOKEN)<input name="reserve" required inputmode="decimal" placeholder="150" /></label>
-          </div>
-          <div class="two">
-            <label>COMMIT WINDOW (MIN)<input name="commitMin" type="number" min="5" value="60" /></label>
-            <label>REVEAL WINDOW (MIN)<input name="revealMin" type="number" min="5" value="30" /></label>
-          </div>
-          <p class="note">Listing burns <b id="fee">100</b> $WIF. Your lot is escrowed until settlement; whatever doesn't sell comes back to you.</p>
-          <button class="btn" type="submit">List auction</button>
-        </form>
-      </div>
-
-      <h2 id="how">How it works</h2>
-      <section class="steps">
-        <div class="card step"><div class="n">01 · commit</div><p>Seal your quantity and price as a hash and post a <b>50 $WIF</b> bond. Nobody sees your bid, not even the seller.</p></div>
-        <div class="card step"><div class="n">02 · reveal</div><p>Open your bid and escrow payment, and your bond comes back. If you never reveal, the bond is <b>burned</b>.</p></div>
-        <div class="card step"><div class="n">03 · settle</div><p>The highest bids fill first and every winner pays the lowest winning price. Losers get everything back.</p></div>
-      </section>
-
-      <footer>
-        One contract, no owner, no admin, no pause. Built for the world is flat hackathon on Robinhood Chain.<br />
-        Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.
-      </footer>
+  <section class="hero">
+    <div class="hero-shapes">
+      <div class="aster"><div class="bar"></div><div class="bar" style="transform:rotate(90deg)"></div></div>
+      <div class="bar" style="right:-70px;bottom:-30px;left:auto;top:auto;width:150px;height:80px;margin:0;border-radius:40px;animation:segelFloat2 11s ease-in-out infinite"></div>
     </div>
-  </main>
-</div>
-<div id="toast"></div>
-<script type="module" src="./app.js"></script>
+    <div class="wrap" style="position:relative;z-index:2;width:100%">
+      <h1 class="pix">THE MARKET<br>IS CLOSED.<br>BID ANYWAY.</h1>
+      <div class="lead">
+        <p>Sealed-bid batch auctions for Stock Tokens on Robinhood Chain, for the hours the market is closed. Bid in secret, reveal together, and every winner pays one price. Being first wins nothing.</p>
+        <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+          <span style="color:rgba(255,255,255,.8);font-size:11.5px">Robinhood Chain &middot; mainnet &middot; bonds in $WIF</span>
+          <a class="btn-light" href="app.html">Open the desk <span>&#8599;</span></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="why">
+    <div class="wrap">
+      <div class="lead-grid">
+        <div class="kicker">WHY TUTUP</div>
+        <h2>Stock Tokens trade 24/7, but the market behind them doesn't. Tutup gives those hours a fair price.</h2>
+      </div>
+      <div class="flow-grid">
+        <div style="display:flex;flex-direction:column;gap:14px;font-size:13px;line-height:1.75;color:#33384a">
+          <p style="margin:0"><b>The feeds stop.</b> The official Chainlink feed for each Stock Token updates 24/5 and stays frozen through the weekend.</p>
+          <p style="margin:0"><b>Minting stops.</b> Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. Outside that window nobody can arbitrage a token back to its share.</p>
+          <p style="margin:0"><b>The race starts.</b> Robinhood Chain orders transactions first come, first served. When quotes go thin, whoever is fastest takes the price.</p>
+          <p style="margin:0"><b>Tutup ends the race.</b> Every bid is sealed until bidding closes, so arrival order doesn't matter, and every winner pays the same clearing price.</p>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="n">24/5</div><div class="l">official Stock Token feeds, frozen on weekends</div></div>
+          <div class="stat"><div class="n">48h</div><div class="l">each weekend with no mint or burn</div></div>
+          <div class="stat"><div class="n">1</div><div class="l">price for every winner in a Tutup auction</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="how">
+    <div class="wrap">
+      <div class="band-head">
+        <div class="kicker">HOW IT WORKS</div>
+        <h2>Three phases. Nothing is visible until bidding closes, and nothing pays you for being first.</h2>
+      </div>
+      <div class="cards3">
+        <div class="card">
+          <span class="chip" style="background:#eef0fb;color:#5b6fd6;align-self:flex-start">01 &middot; COMMIT</span>
+          <div class="pix" style="font-size:26px;font-weight:700">Seal it.</div>
+          <p style="margin:0;font-size:12.5px;line-height:1.7;color:#33384a">You post a hash of your quantity and price, plus a 50 $WIF bond. The seller and other bidders see only that you bid.</p>
+          <div class="feat"><span class="dot" style="background:#7585e4">&#10003;</span>keccak256(id, you, qty, price, salt)</div>
+          <div class="feat"><span class="dot" style="background:#7585e4">&#10003;</span>your salt never leaves your browser</div>
+        </div>
+        <div class="card">
+          <span class="chip" style="background:#fff1cf;color:#8a5300;align-self:flex-start">02 &middot; REVEAL</span>
+          <div class="pix" style="font-size:26px;font-weight:700">Open it.</div>
+          <p style="margin:0;font-size:12.5px;line-height:1.7;color:#33384a">Once bidding closes, you open your bid and escrow payment, and your bond comes back. A bid that is never revealed loses its bond to the burn.</p>
+          <div class="feat"><span class="dot" style="background:#c08a1a">&#10003;</span>fake bids cost real $WIF</div>
+          <div class="feat"><span class="dot" style="background:#c08a1a">&#10003;</span>payment escrowed, so a bid can't be backed out of</div>
+        </div>
+        <div class="card">
+          <span class="chip" style="background:#d8f6e7;color:#0b6b45;align-self:flex-start">03 &middot; SETTLE</span>
+          <div class="pix" style="font-size:26px;font-weight:700">One price.</div>
+          <p style="margin:0;font-size:12.5px;line-height:1.7;color:#33384a">The highest bids fill first and everyone who wins pays the lowest winning bid. Losers are refunded in full, and anything unsold goes back to the seller.</p>
+          <div class="feat"><span class="dot" style="background:#0b6b45">&#10003;</span>ties break on a hash, not on who arrived first</div>
+          <div class="feat"><span class="dot" style="background:#0b6b45">&#10003;</span>Chainlink price recorded next to the clearing price</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dark" id="wif">
+    <div class="wrap">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:26px">
+        <div class="kicker" style="color:#8a8f9c">THE $WIF FLYWHEEL</div>
+        <h2>$WIF is what makes a sealed bid credible, and every auction burns some.</h2>
+      </div>
+      <div class="rail">
+        <div class="tile"><div class="art" style="background:linear-gradient(135deg,#7585e4,#b3a6dd)"><div class="glyph">100</div></div><div class="meta"><div style="color:#fff;font-size:12.5px;font-weight:600">$WIF burned per listing</div><div style="color:#8a8f9c;font-size:11px;margin-top:4px">through WIF's own burn()</div></div></div>
+        <div class="tile"><div class="art" style="background:linear-gradient(135deg,#9192e1,#c4b4dd)"><div class="glyph">50</div></div><div class="meta"><div style="color:#fff;font-size:12.5px;font-weight:600">$WIF bond per sealed bid</div><div style="color:#8a8f9c;font-size:11px;margin-top:4px">returned on reveal</div></div></div>
+        <div class="tile"><div class="art" style="background:linear-gradient(135deg,#b42318,#ff8a7a)"><div class="glyph">&#128293;</div></div><div class="meta"><div style="color:#fff;font-size:12.5px;font-weight:600">unrevealed bonds burn</div><div style="color:#8a8f9c;font-size:11px;margin-top:4px">spam and griefing cost real WIF</div></div></div>
+        <div class="tile"><div class="art" style="background:linear-gradient(135deg,#0b6b45,#7fd8ae)"><div class="glyph">&#8635;</div></div><div class="meta"><div style="color:#fff;font-size:12.5px;font-weight:600">every close, every weekend</div><div style="color:#8a8f9c;font-size:11px;margin-top:4px">more bidders, fairer prices, sellers return</div></div></div>
+        <div class="tile"><div class="art" style="background:linear-gradient(135deg,#33384a,#6b7186)"><div class="glyph">WIF</div></div><div class="meta"><div style="color:#fff;font-size:12.5px;font-weight:600">WIF blocks too</div><div style="color:#8a8f9c;font-size:11px;margin-top:4px">thin pools, so big WIF trades clear better here</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap" style="position:relative;z-index:2">
+      <h2>BID WHEN<br>THEY CAN'T.</h2>
+      <p style="color:rgba(255,255,255,.9);font-size:13px;max-width:460px;line-height:1.7;margin:0 0 22px">One contract with no owner, no admin and no pause. The source is verified and the tests run against mainnet WIF, NVDA and USDG.</p>
+      <div class="btn-row"><a class="btn-light" href="app.html">Open the desk &#8599;</a><a class="btn-light" href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">Read the source &#8599;</a></div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="foot">
+      <span><span class="pix" style="font-weight:700;color:#14151a">TUTUP</span> &middot; built for the world is flat hackathon</span>
+      <span>Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</span>
+    </div>
+  </div>
 </body>
 </html>

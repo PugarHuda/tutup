@@ -1,0 +1,94 @@
+/* Tutup landing — from the Segel landing, full-bleed, responsive. */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#e4e9f6;color:#14151a;font-family:'JetBrains Mono',monospace;
+  background-image:repeating-linear-gradient(90deg,rgba(126,147,230,.05) 0,rgba(126,147,230,.05) 1px,transparent 1px,transparent 64px);
+}
+::selection{background:#7e93e6;color:#fff}
+a{color:inherit}
+.wrap{max-width:1320px;margin:0 auto;padding:0 clamp(20px,5vw,72px)}
+.pix{font-family:'Pixelify Sans',monospace}
+
+@keyframes segelFloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-14px) rotate(4deg)}}
+@keyframes segelFloat2{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(16px) rotate(-5deg)}}
+@keyframes segelSpin{to{transform:rotate(360deg)}}
+
+/* nav */
+.nav{position:absolute;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;
+  padding:clamp(18px,3vw,28px) clamp(20px,5vw,72px)}
+.nav .brand{display:flex;align-items:center;gap:9px;color:#fff}
+.nav .links{display:flex;align-items:center;gap:clamp(14px,2vw,26px)}
+.nav .links a{color:rgba(255,255,255,.9);text-decoration:none;font-size:12.5px;font-weight:500}
+.btn-light{color:#1b1c28!important;background:rgba(255,255,255,.94);text-decoration:none;font-size:12px;font-weight:600;
+  padding:10px 16px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+
+/* hero — full bleed */
+.hero{position:relative;overflow:hidden;min-height:92vh;display:flex;flex-direction:column;justify-content:flex-end;
+  background:linear-gradient(135deg,#7585e4 0%,#9192e1 42%,#b3a6dd 78%,#c4b4dd 100%)}
+.hero h1{margin:0;color:#fff;font-weight:700;font-size:clamp(40px,9.5vw,104px);line-height:.95;letter-spacing:1px;
+  text-shadow:0 2px 0 rgba(40,50,90,.12)}
+.hero .lead{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;
+  padding:clamp(24px,4vw,40px) 0 clamp(28px,5vw,48px)}
+.hero .lead p{margin:0;color:rgba(255,255,255,.92);font-size:clamp(12px,1.4vw,14px);line-height:1.7;max-width:440px}
+.hero-shapes{position:absolute;right:4%;top:42%;transform:translateY(-50%);z-index:1;width:340px;height:340px;pointer-events:none}
+.bar{position:absolute;left:50%;top:50%;width:230px;height:46px;margin:-23px 0 0 -115px;border-radius:23px;
+  background:rgba(255,255,255,.2);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.33)}
+.aster{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:230px;height:230px;animation:segelFloat 9s ease-in-out infinite}
+
+/* generic sections */
+.section{padding:clamp(40px,7vw,72px) 0}
+.kicker{font-size:11.5px;letter-spacing:1.5px;color:#8a8f9c}
+.lead-grid{display:grid;grid-template-columns:230px 1fr;gap:30px;align-items:start}
+.lead-grid h2{margin:0;font-size:clamp(19px,2.4vw,26px);font-weight:600;line-height:1.45;max-width:680px}
+.flow-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(28px,4vw,48px);align-items:center;margin-top:clamp(20px,3vw,40px)}
+.stats{display:flex;flex-direction:column;gap:26px}
+.stat .n{font-family:'Pixelify Sans',monospace;font-weight:700;font-size:clamp(34px,5vw,46px);line-height:1}
+.stat .l{font-size:11.5px;color:#8a8f9c;margin-top:7px}
+.stat+.stat{border-top:1px solid #ecf0f7;padding-top:24px}
+
+/* how — full bleed tinted band */
+.band{background:linear-gradient(120deg,#dfe3fb 0%,#ece2f6 38%,#f6e6ee 66%,#e4eef0 100%);padding:clamp(40px,6vw,64px) 0}
+.band-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:30px}
+.band-head h2{margin:0;font-size:clamp(18px,2.2vw,23px);font-weight:600;max-width:520px;line-height:1.4;text-align:right}
+.cards3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:#fff;border-radius:13px;padding:22px;display:flex;flex-direction:column;gap:14px;min-height:320px}
+.chip{display:inline-flex;align-items:center;gap:7px;border-radius:7px;padding:6px 11px;font-size:11px;font-weight:600}
+.feat{display:flex;align-items:center;gap:9px;font-size:11.5px;color:#33384a}
+.feat .dot{width:16px;height:16px;border-radius:50%;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
+
+/* stack — dark full bleed */
+.dark{background:#0b0b0e;padding:clamp(38px,6vw,56px) 0}
+.dark h2{margin:0;color:#fff;font-size:clamp(18px,2.2vw,23px);font-weight:600;max-width:560px;line-height:1.4}
+.rail{display:flex;gap:14px;overflow-x:auto;padding:6px 0 14px;scroll-snap-type:x mandatory}
+.rail::-webkit-scrollbar{height:6px}.rail::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:4px}
+.tile{flex:0 0 246px;scroll-snap-align:start}
+.tile .art{position:relative;height:220px;border-radius:11px;overflow:hidden}
+.tile .glyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Pixelify Sans',monospace;font-weight:600;font-size:30px;color:#fff;text-shadow:0 2px 6px rgba(40,50,90,.35)}
+.tile .meta{background:#16161b;border-radius:0 0 11px 11px;padding:13px 14px;margin-top:-1px}
+
+/* verify cards */
+.vcard{text-decoration:none;color:inherit;border:1px solid #e7ebf4;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:10px;background:#fbfcff;transition:.15s}
+.vcard:hover{border-color:#b9c4ec;box-shadow:0 12px 30px -20px rgba(60,70,140,.5)}
+
+/* cta */
+.cta{position:relative;overflow:hidden;background:linear-gradient(135deg,#7585e4,#9192e1 50%,#b3a6dd);padding:clamp(44px,7vw,72px) 0}
+.cta h2{font-family:'Pixelify Sans',monospace;font-weight:700;color:#fff;font-size:clamp(30px,5vw,48px);margin:0 0 14px;line-height:1;letter-spacing:1px}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap}
+.foot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;padding:26px 0 36px;font-size:11.5px;color:#8a8f9c}
+.foot a{color:#8a8f9c;text-decoration:none}
+
+/* ---------- responsive ---------- */
+@media (max-width:900px){
+  .nav .links a{display:none}
+  .lead-grid{grid-template-columns:1fr;gap:14px}
+  .flow-grid{grid-template-columns:1fr;gap:28px}
+  .cards3{grid-template-columns:1fr}
+  .band-head h2{text-align:left}
+  .hero-shapes{opacity:.5;right:-10%}
+}
+@media (max-width:560px){
+  .hero{min-height:88vh}
+  .hero-shapes{display:none}
+  .card{min-height:auto}
+}
