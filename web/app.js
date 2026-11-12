@@ -763,7 +763,7 @@ async function vMarket() {
       <div class="card stat"><div class="k">us session · quicknode</div><div class="v">${esc(sessionName(health))}</div>${nextAt ? `<div class="muted" style="font-size:11px">changes in ${countdown(BigInt(nextAt), now)}</div>` : ""}</div>
       <div class="card stat"><div class="k">robinhood mint window</div><div class="v">${health.session?.mintWindowOpen ? "open" : "closed"}</div>${mintAt ? `<div class="muted" style="font-size:11px">${health.session?.mintWindowOpen ? "closes" : "opens"} in ${countdown(BigInt(mintAt), now)}</div>` : ""}</div>
       <div class="card stat"><div class="k">sequencer</div><div class="v">${esc(String(sq).toLowerCase())}</div><div class="muted" style="font-size:11px">latest block ${health.sequencer?.latestBlockAgeSeconds ?? "?"}s old</div></div>
-      <div class="card stat"><div class="k">feeds not updating</div><div class="v">${(health.feeds || []).filter((f) => f.status !== "UPDATING").length} / ${(health.feeds || []).length}</div></div>
+      <div class="card stat"><div class="k">feeds stale or paused</div><div class="v">${(health.feeds || []).filter((f) => f.status !== "OK" && f.status !== "NOT_CONFIGURED").length} / ${(health.feeds || []).filter((f) => f.status !== "NOT_CONFIGURED").length}</div><div class="muted" style="font-size:11px">"ok" = within the feed's heartbeat</div></div>
     </section>`);
   }
   const qnStatus = Object.fromEntries((health?.feeds || []).map((f) => [f.symbol, f.status]));
@@ -773,7 +773,7 @@ async function vMarket() {
       <td>${usd(r.f7?.price)}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
       <td>${r.st?.mult ? (Number(r.st.mult) / 1e18).toFixed(4) : "–"}${r.st?.pending ? ` <span class="badge b-reveal">pending</span>` : ""}</td>
       <td><span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.st?.paused ? "corp action" : r.rh?.halt ? "halted" : r.closed ? "frozen" : "live"}</span></td>
-      ${health ? `<td><span class="badge ${qnStatus[t.sym] === "UPDATING" ? "b-open" : "b-closed"}">${esc((qnStatus[t.sym] || "–").toLowerCase().replace(/_/g, " "))}</span></td>` : ""}</tr>`).join("")}</tbody></table>`;
+      ${health ? `<td><span class="badge ${qnStatus[t.sym] === "OK" ? "b-open" : "b-closed"}">${esc((qnStatus[t.sym] || "–").toLowerCase().replace(/_/g, " "))}</span></td>` : ""}</tr>`).join("")}</tbody></table>`;
 }
 
 async function vPrints() {

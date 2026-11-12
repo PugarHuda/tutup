@@ -127,7 +127,9 @@ async function run(name, args = {}) {
     const health = await quicknode("qn_getOracleHealth", [{ symbols: [t.sym] }]).catch(() => null);
     const qf = health?.feeds?.find((x) => x.symbol === t.sym);
     const pyth = await pythPrices(t.sym).catch(() => null);
-    const frozen = qf ? qf.status !== "UPDATING" : !f5 || f5.ageHours > 2 || paused === true;
+    // Quicknode's status says whether the feed is within its heartbeat (OK) or STALE/PAUSED; the age check says
+    // whether the price is still moving. Either one failing means the official price can't be trusted right now.
+    const frozen = !f5 || f5.ageHours > 2 || paused === true || (qf && qf.status !== "OK");
     return { symbol: t.sym, name: t.name, token: t.addr, officialFeed24x5: f5, feed24x7: f7, lighter, erc8056Multiplier: mult ? Number(mult) / 1e18 : null,
       pendingCorporateAction: mult && next && next !== mult && Number(at) > Date.now() / 1000 ? { newMultiplier: Number(next) / 1e18, effectiveAt: new Date(Number(at) * 1000).toISOString() } : null,
       pyth: pyth?.configured ? { session: pyth.us, feed24x7: pyth.d247 } : "Pyth Pro key not configured", oraclePaused: paused, officialPriceFrozen: frozen,
