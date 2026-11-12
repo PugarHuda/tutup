@@ -1,7 +1,13 @@
 import {
-  createPublicClient, createWalletClient, custom, http, fallback, defineChain, parseAbi,
-  formatUnits, parseUnits, keccak256, encodeAbiParameters, encodeFunctionData, toHex,
+  createPublicClient, createWalletClient, custom, http, defineChain, parseAbi,
+  formatUnits, parseUnits as parseUnitsRaw, keccak256, encodeAbiParameters, encodeFunctionData, toHex,
 } from "./viem.js"; // viem 2.21.0, bundled locally
+// viem's parseUnits turns "abc" into "Cannot convert abc000… to a BigInt"; every form amount goes through this guard
+const parseUnits = (v, d) => {
+  const s = String(v ?? "").trim();
+  if (s && !/^\d*\.?\d+$|^\d+\.$/.test(s)) throw new Error(`"${s}" is not a valid number`);
+  return parseUnitsRaw(s, d);
+};
 
 // Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
 // a link to the live site must never be able to swap the contract the page asks people to approve.
@@ -86,9 +92,10 @@ const stockAbi = parseAbi([
 ]);
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
-// Reads: the same-origin proxy first (no CORS, server-side failover), then the public RPC directly. Batched and retried.
+// Reads go through the same-origin proxy only: it fails over server-side (Quicknode → public RPC → GetBlock), and a
+// direct browser hop to the public RPC just adds CORS/cert noise when that endpoint is down. Batched and retried.
 const rpcOpts = { batch: { batchSize: 30, wait: 16 }, retryCount: 4, retryDelay: 300 };
-const transport = RPC !== DEFAULT.rpc ? http(RPC, rpcOpts) : fallback([http("/api/rpc", rpcOpts), http(RPC, rpcOpts)]);
+const transport = http(RPC !== DEFAULT.rpc ? RPC : "/api/rpc", rpcOpts);
 const pub = createPublicClient({ chain, transport });
 let wallet, account;
 // A view keeps rendering async data after the user may have moved on; writes to its gone elements land in a
@@ -549,6 +556,7 @@ async function vAuction(id) {
   await tokensReady;
   view.innerHTML = `<div class="card empty">loading auction #${id}…</div>`;
   if (!DEPLOYED) { view.innerHTML = notDeployed; return; }
+  if (id >= (await read("auctionCount"))) { view.innerHTML = `<div class="card empty">Auction #${id} doesn't exist yet. <a href="#auctions">See all auctions</a></div>`; return; }
   cancelledIds = null; // a cancel may have just happened
   const [a, now] = await Promise.all([loadAuction(id), pub.getBlock().then((b) => b.timestamp)]);
   const ph = phaseOf(a, now);
@@ -1101,7 +1109,12 @@ function route() {
   const m = h.match(/^a\/(\d+)$/);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === (m ? "auctions" : h)));
   const run = m ? vAuction(BigInt(m[1])) : ({ create: vCreate, mine: vMine, market: vMarket, prints: vPrints, burns: vBurns, wif: vGetWif, docs: vDocs }[h] || vAuctions)();
-  Promise.resolve(run).catch((e) => { console.error(e); toast(e.shortMessage || e.message, 8000); });
+  Promise.resolve(run).catch((e) => {
+    console.error(e);
+    const msg = e.shortMessage || e.message;
+    toast(msg, 8000);
+    if (/loading/.test(view.textContent)) view.innerHTML = `<div class="card empty">Couldn't load this page: ${esc(msg)}. Please try again.</div>`;
+  });
 }
 
 $("connect").addEventListener("click", () => connect().catch((e) => toast(e.message)));
