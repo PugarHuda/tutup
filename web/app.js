@@ -1,7 +1,7 @@
 import {
   createPublicClient, createWalletClient, custom, http, defineChain, parseAbi,
   formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex, maxUint256,
-} from "https://esm.sh/viem@2.21.0";
+} from "./viem.js"; // viem 2.21.0, bundled locally
 
 // set after deploy
 const TUTUP = "0x0000000000000000000000000000000000000000";
