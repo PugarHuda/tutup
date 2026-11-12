@@ -145,7 +145,7 @@ async function run(name, args = {}) {
     return out;
   }
   if (name === "portfolio") {
-    if (!isAddress(args.address)) throw new Error("address must be an address");
+    if (!isAddress(args.address, { strict: false })) throw new Error("address must be an address");
     return quicknode("qn_getStockTokenBalances", [getAddress(args.address)]);
   }
   if (name === "corporate_actions") {
@@ -189,7 +189,7 @@ async function run(name, args = {}) {
     return { prints, chainlinkCompatibleFeeds: FEED, howToRead: "lastPrint(lot, quote) on the Tutup contract, or latestRoundData() on a feed above (8 decimals)." };
   }
   if (name === "prepare_bid") {
-    if (!isAddress(args.bidder)) throw new Error("bidder must be an address");
+    if (!isAddress(args.bidder, { strict: false })) throw new Error("bidder must be an address");
     const bidder = getAddress(args.bidder);
     const a = await auction(args.auction_id);
     if (a.phase !== "commit") throw new Error(`auction ${a.id} is in ${a.phase}; bids can only be sealed during commit`);
@@ -215,9 +215,9 @@ async function run(name, args = {}) {
     };
   }
   if (name === "prepare_reveal") {
-    if (!args.receipt && !(args.auction_id !== undefined && isAddress(args.bidder || ""))) throw new Error("pass receipt, or auction_id and bidder to recover it from the chain");
+    if (!args.receipt && !(args.auction_id !== undefined && isAddress(args.bidder || "", { strict: false }))) throw new Error("pass receipt, or auction_id and bidder to recover it from the chain");
     const r = args.receipt || await recoverReceipt(args.auction_id, getAddress(args.bidder));
-    if (String(r.tutup).toLowerCase() !== TUTUP.toLowerCase() || !isAddress(r.bidder) || !/^0x[0-9a-f]{64}$/i.test(r.salt) || !/^\d+$/.test(r.qty) || !/^\d+$/.test(r.price)) throw new Error("not a Tutup receipt for this contract");
+    if (String(r.tutup).toLowerCase() !== TUTUP.toLowerCase() || !isAddress(r.bidder, { strict: false }) || !/^0x[0-9a-f]{64}$/i.test(r.salt) || !/^\d+$/.test(r.qty) || !/^\d+$/.test(r.price)) throw new Error("not a Tutup receipt for this contract");
     const a = await auction(r.auction);
     if (a.phase !== "reveal") throw new Error(`auction ${a.id} is in ${a.phase}; reveals are only accepted during reveal`);
     const qty = BigInt(r.qty), price = BigInt(r.price);
@@ -235,7 +235,7 @@ async function run(name, args = {}) {
     const [count, value, d] = clients.length ? await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getSummary", args: [AGENT_ID, clients, "tutup-auction", ""] }) : [0n, 0n, 0];
     const out = { agent: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584", registry: REPUTATION, ratings: Number(count), average: count ? Number(value) / 10 ** d : null, raters: clients.length };
     if (args.rate_auction_id === undefined) return out;
-    if (!isAddress(args.rater || "")) throw new Error("rater must be an address");
+    if (!isAddress(args.rater || "", { strict: false })) throw new Error("rater must be an address");
     const score = Number(args.score ?? 100);
     if (!(score >= 0 && score <= 100)) throw new Error("score must be 0-100");
     const a = await auction(args.rate_auction_id);
