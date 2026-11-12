@@ -87,7 +87,9 @@ const rpcOpts = { batch: { batchSize: 30, wait: 16 }, retryCount: 4, retryDelay:
 const transport = RPC !== DEFAULT.rpc ? http(RPC, rpcOpts) : fallback([http("/api/rpc", rpcOpts), http(RPC, rpcOpts)]);
 const pub = createPublicClient({ chain, transport });
 let wallet, account;
-const $ = (id) => document.getElementById(id);
+// A view keeps rendering async data after the user may have moved on; writes to its gone elements land in a
+// detached node instead of throwing. ponytail: one fallback here instead of a null check at every await.
+const $ = (id) => document.getElementById(id) || document.createElement("div");
 const view = $("view");
 const tokenOf = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase());
 const sym = (a) => tokenOf(a)?.sym || a.slice(0, 8);
