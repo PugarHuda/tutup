@@ -4,6 +4,8 @@
 
 *Tutup* is Indonesian for "closed".
 
+**Live:** https://tutup.vercel.app · **Demo video (2:17):** https://youtu.be/eXyt-ZirmPc · **QA report:** [`docs/REPORT.md`](docs/REPORT.md)
+
 Stock Tokens trade 24/7. Their official Chainlink feeds update 24/5, and Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. On weekends and during corporate actions nobody can arbitrage a token back to its share. RFQ quotes widen or vanish, and on a first-come-first-served sequencer, whoever is fastest sets the price.
 
 Tutup replaces the race with a sealed-bid batch auction:
@@ -159,7 +161,7 @@ The Agent Discovery & Reputation add-on is installed on the same endpoint. `/api
   - `qn_getTransactionFinality`: whether a settlement is soft, posted, safe or finalized on Ethereum, shown on each auction (auction #0's settlement shows FINALIZED in batch 388466)
   - `qn_getCorporateActions`: split and dividend history for a lot
   - MCP tools `portfolio`, `corporate_actions` and `tx_finality`, plus `market_status`, which uses oracle health
-- **GetBlock:** RPC for the mainnet fork tests, and the server-side failover upstream (`GETBLOCK_RPC`) behind `/api/rpc` and the MCP server.
+- **GetBlock:** RPC for the mainnet fork tests, and the server-side failover upstream (`GETBLOCK_RPC`) behind `/api/rpc`, the MCP server and the keeper. It serves the wide `eth_getLogs` reads that Quicknode's free plan caps at 5 blocks: the proxy skips Quicknode's `-32615` answer to the next upstream.
 - **Pyth:** `/api/pyth` reads `Equity.US.X/USD` and `Equity.Index.X/USD` (24/7) from Hermes with a server-side Pyth Pro key. Since the Pyth Core upgrade (26 Aug 2026) Hermes needs a key, and equities need the Pro plan, so this stays dormant (`configured: false`) until a key is set. The Pyth contract on Robinhood Chain (`0xACeA…dF481`) has no pushed feeds to read instead.
 - **Sourcify:** every deployment is verified with an exact match.
 - **Slither:** static analysis on every version. The findings are triaged above and in the tests.
@@ -170,6 +172,10 @@ The Agent Discovery & Reputation add-on is installed on the same endpoint. `/api
 - The reveal makes bid size public, but only after commits have closed.
 
 ## Web
-`web/` is a static page (viem from esm.sh). It reads the NVDA 24/5 and 24/7 Chainlink feeds to show whether the market is open.
+`web/` is a static page with viem bundled locally, plus Vercel functions under `web/api/`. The browser reads the chain only through `/api/rpc`, which fails over server-side (Quicknode → public RPC → GetBlock).
+
+## Tests
+- `forge test`: 22 tests (unit, fuzz, invariant, reentrancy, gas, mainnet fork).
+- `cd e2e && npm i && npx playwright test`: 49 E2E tests against the live site on Chrome desktop and mobile, covering every desk route, chain and sponsor data, wallet flows, failure modes (Relay, RPC and Lighter down) and axe accessibility. Results and the bugs they caught are in [`docs/REPORT.md`](docs/REPORT.md).
 
 Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc.

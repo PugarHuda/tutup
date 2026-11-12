@@ -40,7 +40,7 @@ $WIF is the cost of making a credible bid and the price of listing:
 
 ## Step 5 · proof of build
 - repo: https://github.com/PugarHuda/tutup
-- demo video (<=3 min): (after recording)
+- demo video (2:17): https://youtu.be/eXyt-ZirmPc
 - live url: https://tutup.vercel.app
 - tx hashes (v3):
   - 0x128b9402f2fffb25ca6c2c3bba84f3c760ab7a91d776fab68281204a5c26b9b8  (deploy v3)
@@ -71,7 +71,9 @@ $WIF is the cost of making a credible bid and the price of listing:
 - Solidity 0.8.24, Foundry. One contract, no owner, no admin, no pause, no upgrade. Source verified on Sourcify (exact match).
 - Unit and fuzz tests (uniform price, partial fill, refunds, conservation of every token) plus a fork test against Robinhood Chain mainnet with the real WIF, NVDA and USDG contracts, which proves the listing burn reduces WIF's real totalSupply.
 - Chainlink: the NVDA/TSLA/GOOGL 24/7 feeds as the reference price, the 24/5 feeds to show when the market is closed.
-- RPC from GetBlock (hackathon endpoints) and Quicknode.
+- RPC: Quicknode first (plus its Stock Token API, Streams and ERC-8004 API), then the public RPC, then GetBlock, which serves wide log reads that Quicknode's free plan caps at 5 blocks.
+- Bid receipts are drand-timelocked into the commit calldata, so a lost salt no longer burns a bond.
+- Tests: 22 Foundry tests and 49 Playwright E2E tests against the live site (`e2e/`, report in `docs/REPORT.md`).
 - Commit-reveal instead of TEE or FHE: Robinhood Chain has neither, and a sealed bid only needs to stay hidden until the commit window closes.
 - Built by a solo builder whose sealed-bid desks won 1st at iExec Vibe Coding (Diam) and 1st + Best in Track at HackCanton S3 (Talang). Tutup carries that auction design to Robinhood Chain.
 
@@ -81,7 +83,7 @@ $WIF is the cost of making a credible bid and the price of listing:
 - Reveal escrows payment, so the bid size becomes public once reveals open. That's after commits close, so it can't be front-run.
 
 ### what's next
-Auto-opening auctions on corporate actions (oraclePaused), a keeper that lists for market makers every Friday close, and a weekend price index built from clearing prices.
+Auto-opening auctions on corporate actions (oraclePaused), a keeper that lists for market makers every Friday close, TutupFeeds for every Stock Token pair, gasless bids once a paymaster supports Robinhood Chain, and outside bidders and agents rating Tutup on ERC-8004.
 
 ## Step 6 · review
 - payout address: (your wallet)
