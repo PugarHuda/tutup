@@ -1,5 +1,5 @@
 import {
-  createPublicClient, createWalletClient, custom, http, defineChain, parseAbi,
+  createPublicClient, createWalletClient, custom, http, fallback, defineChain, parseAbi,
   formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex,
 } from "./viem.js"; // viem 2.21.0, bundled locally
 
@@ -80,7 +80,10 @@ const stockAbi = parseAbi([
 ]);
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
-const pub = createPublicClient({ chain, transport: http(RPC, { batch: true }) }); // JSON-RPC batching: one request per tick
+// Reads: the same-origin proxy first (no CORS, server-side failover), then the public RPC directly. Batched and retried.
+const rpcOpts = { batch: { batchSize: 40, wait: 16 }, retryCount: 4, retryDelay: 300 };
+const transport = RPC !== DEFAULT.rpc ? http(RPC, rpcOpts) : fallback([http("/api/rpc", rpcOpts), http(RPC, rpcOpts)]);
+const pub = createPublicClient({ chain, transport });
 let wallet, account;
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -662,7 +665,28 @@ async function vGetWif() {
     <div class="card pad"><h3>How it works</h3><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready.</p>
       <div class="kv"><span>delivered to</span><b>${account ? short(account) : "your connected wallet"}</b></div>
       <div class="kv"><span>status API</span><b>/intents/status/v3</b></div></div></div>`;
-  let quote;
+  let quote, quoted;
+  // Relay's own contracts per chain, plus its depository (it receives cross-chain deposits and isn't in /chains)
+  const RELAY_DEPOSITORY = "0x4cd00e387622c35bddb9b4c962c136462338bc31";
+  const relayContracts = fetch("https://api.relay.link/chains").then((r) => r.json()).then((d) => {
+    const m = {};
+    for (const c of d.chains || []) {
+      const set = new Set([RELAY_DEPOSITORY]);
+      const walk = (o) => Object.values(o || {}).forEach((v) => (typeof v === "string" ? /^0x[0-9a-fA-F]{40}$/.test(v) && set.add(v.toLowerCase()) : walk(v)));
+      walk(c.contracts);
+      m[c.id] = set;
+    }
+    return m;
+  });
+  // approve, transfer, transferFrom, permit, setApprovalForAll, increaseAllowance: never signed from a quote
+  const FORBIDDEN = ["0x095ea7b3", "0xa9059cbb", "0x23b872dd", "0xd505accf", "0xa22cb465", "0x39509351"];
+  const check = async (d) => {
+    const allowed = (await relayContracts)[quoted.origin];
+    if (d.chainId !== quoted.origin) throw new Error(`Relay asked to sign on chain ${d.chainId}, but you chose ${quoted.origin}`);
+    if (!allowed?.has(String(d.to).toLowerCase())) throw new Error(`Relay asked to call ${d.to}, which isn't a Relay contract`);
+    if (BigInt(d.value || 0) > quoted.amount) throw new Error("Relay asked for more ETH than you entered");
+    if (FORBIDDEN.includes(String(d.data || "").slice(0, 10).toLowerCase())) throw new Error("Relay asked for a token approval or transfer; refusing");
+  };
   const getQuote = async () => {
     if (!account) await connect();
     const f = new FormData($("relay"));
@@ -673,6 +697,7 @@ async function vGetWif() {
       originCurrency: NONE, destinationCurrency: WIF, amount, tradeType: "EXACT_INPUT" }) }).then((x) => x.json());
     if (!r.steps) throw new Error(r.message || "no route");
     quote = r;
+    quoted = { origin: Number(f.get("origin")), amount: BigInt(amount) };
     const out = r.details?.currencyOut;
     $("quoteOut").innerHTML = `<div class="callout">You receive about <b>${Number(out.amountFormatted).toLocaleString(undefined, { maximumFractionDigits: 2 })} $WIF</b> (${usd(Number(out.amountUsd))}) on Robinhood Chain.<br>Fees ${usd(Number(r.fees?.relayer?.amountUsd || 0) + Number(r.fees?.gas?.amountUsd || 0))} · about ${r.details?.timeEstimate ?? "?"}s.</div>`;
     $("goBtn").disabled = false;
@@ -686,11 +711,13 @@ async function vGetWif() {
         for (const item of step.items) {
           if (step.kind !== "transaction") throw new Error(`step "${step.id}" needs a signature this page doesn't support`);
           const d = item.data;
-          const origin = ORIGINS.find((c) => c.id === d.chainId) || ORIGINS[0];
+          await check(d);
+          const origin = ORIGINS.find((c) => c.id === quoted.origin);
           await switchTo(origin);
           toast(`${step.description || step.id}: confirm in your wallet…`, 60000);
-          const w = createWalletClient({ account, transport: custom(window.ethereum) });
-          const hash = await w.sendTransaction({ account, chain: null, to: d.to, data: d.data, value: BigInt(d.value || 0) });
+          const oc = defineChain({ id: origin.id, name: origin.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [origin.rpc] } } });
+          const w = createWalletClient({ account, chain: oc, transport: custom(window.ethereum) });
+          const hash = await w.sendTransaction({ account, chain: oc, to: d.to, data: d.data, value: BigInt(d.value || 0) });
           toast(`sent ${hash.slice(0, 10)}… on ${origin.name}, waiting for Relay`, 60000);
         }
       }
