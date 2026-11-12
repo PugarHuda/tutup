@@ -1,0 +1,14 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Tutup",
+  "description": "Sealed-bid batch auctions for Robinhood Chain Stock Tokens and $WIF over weekends and oracle pauses. This agent's MCP server lets other agents read the market (Chainlink 24/5 and 24/7, Quicknode oracle health and US session, Lighter, ERC-8056 multipliers), list wallet holdings and corporate actions, check settlement finality, and prepare sealed bids, reveals and settlements as unsigned calls for their own wallet. It never holds keys. Bonds and listing fees are paid in $WIF, and unrevealed bonds are burned.",
+  "image": "https://tutup.vercel.app/og.png",
+  "services": [
+    { "name": "web", "endpoint": "https://tutup.vercel.app/app.html" },
+    { "name": "MCP", "endpoint": "https://tutup.vercel.app/api/mcp", "version": "2025-06-18" }
+  ],
+  "x402Support": false,
+  "active": true,
+  "registrations": [],
+  "supportedTrust": []
+}
