@@ -5,7 +5,8 @@ import {
 
 // Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
 // a link to the live site must never be able to swap the contract the page asks people to approve.
-const DEFAULT = { rpc: "https://rpc.mainnet.chain.robinhood.com", tutup: "0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE", from: "112323226" };
+const DEFAULT = { rpc: "https://rpc.mainnet.chain.robinhood.com", tutup: "0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30", from: "112341239" };
+const V1 = "0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE"; // first deployment, auction #0 settled there
 const q = new URLSearchParams(location.search);
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const pick = (k, ok) => (LOCAL && q.get(k) && ok.test(q.get(k)) ? q.get(k) : DEFAULT[k]);
@@ -22,57 +23,81 @@ const chain = defineChain({
   blockExplorers: { default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" } },
 });
 const EXPLORER = chain.blockExplorers.default.url;
-
-// lot tokens are all 18 decimals. f5 = official 24/5 feed, f7 = 24/7 feed where Chainlink has one.
-const TOKENS = [
-  { sym: "NVDA", addr: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", f5: "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15", f7: "0x321A36e441DfBadA01Aa6f9884F14a344E133D1F", lot: true },
-  { sym: "TSLA", addr: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", f5: "0x4A1166a659A55625345e9515b32adECea5547C38", f7: "0x39eDf5ef54150A30d2C4F1b982FbB8f93050BC37", lot: true },
-  { sym: "SPY", addr: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", f5: "0x319724394D3A0e3669269846abE664Cd621f9f6A", lot: true },
-  { sym: "AAPL", addr: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", f5: "0x6B22A786bAa607d76728168703a39Ea9C99f2cD0", lot: true },
-  { sym: "AMZN", addr: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", f5: "0xD5a1508ceD74c084eBf3cBe853e2C968fB2a651C", lot: true },
-  { sym: "QQQ", addr: "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", f5: "0x80901d846d5D7B030F26B480776EE3b29374C2ae", lot: true },
-  { sym: "MSFT", addr: "0xe93237C50D904957Cf27E7B1133b510C669c2e74", f5: "0x45C3C877C15E6BA2EBB19eA114Ea508d14C1Af2E", lot: true },
-  { sym: "WIF", addr: "0x5173b8eA6923c2d40267890D45C46a3480954773", lot: true, quote: true },
-  { sym: "USDG", addr: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", quote: true },
-  { sym: "WETH", addr: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73", quote: true },
+// origin chains for "Get $WIF" through Relay
+const ORIGINS = [
+  { id: 4663, name: "Robinhood Chain", rpc: DEFAULT.rpc, explorer: EXPLORER },
+  { id: 42161, name: "Arbitrum", rpc: "https://arb1.arbitrum.io/rpc", explorer: "https://arbiscan.io" },
+  { id: 8453, name: "Base", rpc: "https://mainnet.base.org", explorer: "https://basescan.org" },
+  { id: 1, name: "Ethereum", rpc: "https://eth.llamarpc.com", explorer: "https://etherscan.io" },
 ];
-const WIF = TOKENS.find((t) => t.sym === "WIF").addr;
+
+const WIF = "0x5173b8eA6923c2d40267890D45C46a3480954773";
+const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+const WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73";
 const NONE = "0x0000000000000000000000000000000000000000";
+const FEED_ETH = "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9";
+const FEED_USDG = "0x61B7e5650328764B076A108EFF5fa7282a1B9aD2";
+const BASE_TOKENS = [
+  { sym: "WIF", name: "World is Flat", addr: WIF, lot: true, quote: true },
+  { sym: "USDG", name: "Global Dollar", addr: USDG, quote: true },
+  { sym: "WETH", name: "Wrapped Ether", addr: WETH, quote: true },
+];
+let TOKENS = BASE_TOKENS; // + every Stock Token from tokens.json (built by scripts/tokens.py)
 
 const abi = parseAbi([
   "function auctionCount() view returns (uint256)",
   "function totalBurned() view returns (uint256)",
   "function listFee() view returns (uint256)",
-  "function bond() view returns (uint256)",
-  "function auctions(uint256) view returns (address seller, address lot, address quote, address feed, uint128 lotAmount, uint128 reserve, uint64 commitEnd, uint64 revealEnd, uint32 commits, uint32 reveals, bool settled)",
+  "function minBond() view returns (uint256)",
+  "function auctions(uint256) view returns (address seller, address lot, address quote, address feed, uint128 lotAmount, uint128 reserve, uint128 bond, uint64 commitEnd, uint64 revealEnd, uint32 commits, uint32 reveals, bool settled)",
   "function bids(uint256) view returns ((address bidder, uint128 qty, uint128 price)[])",
-  "function create(address lot, address quote, uint128 lotAmount, uint128 reserve, uint64 commitDuration, uint64 revealDuration, address feed) returns (uint256)",
+  "function lastPrint(address, address) view returns (uint128 price, uint128 sold, uint64 at, uint64 auctionId)",
+  "function owed(address, address) view returns (uint256)",
+  "function create(address lot, address quote, uint128 lotAmount, uint128 reserve, uint128 bond, uint64 commitDuration, uint64 revealDuration, address feed) returns (uint256)",
+  "function cancel(uint256 id)",
   "function commit(uint256 id, bytes32 hash)",
   "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
+  "function claim(address token)",
   "event Settled(uint256 indexed id, uint256 clearingPrice, uint256 sold, uint256 proceeds, int256 refPrice, uint256 refUpdatedAt)",
   "event Filled(uint256 indexed id, address indexed bidder, uint256 qty, uint256 paid)",
   "event Burned(uint256 indexed id, uint256 amount, string reason)",
+  "event Cancelled(uint256 indexed id)",
+  "event Owed(address indexed token, address indexed to, uint256 amount)",
 ]);
 const erc20 = parseAbi([
   "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)",
   "function allowance(address, address) view returns (uint256)",
   "function approve(address, uint256) returns (bool)",
 ]);
+// ERC-8056 (Scaled UI Amount) and Robinhood's advisory oracle pause, both read from the Stock Token itself
+const stockAbi = parseAbi([
+  "function uiMultiplier() view returns (uint256)",
+  "function newUIMultiplier() view returns (uint256)",
+  "function effectiveAt() view returns (uint256)",
+  "function oraclePaused() view returns (bool)",
+]);
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
-const pub = createPublicClient({ chain, transport: http(RPC) });
+const pub = createPublicClient({ chain, transport: http(RPC, { batch: true }) }); // JSON-RPC batching: one request per tick
 let wallet, account;
 const $ = (id) => document.getElementById(id);
 const view = $("view");
-const sym = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase())?.sym || a.slice(0, 8);
+const tokenOf = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase());
+const sym = (a) => tokenOf(a)?.sym || a.slice(0, 8);
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const decCache = {};
 const decimals = async (a) => (decCache[a] ??= await pub.readContract({ address: a, abi: erc20, functionName: "decimals" }));
 const fmt = (v, d, max = 4) => { const n = Number(formatUnits(v, d)); return n !== 0 && Math.abs(n) < 1 ? n.toLocaleString(undefined, { maximumSignificantDigits: 4 }) : n.toLocaleString(undefined, { maximumFractionDigits: max }); };
-const tok = (a) => `<span class="tok"><i>${sym(a).slice(0, 4)}</i>${sym(a)}</span>`;
+const usd = (n) => n == null ? "–" : "$" + (n < 1 ? n.toPrecision(3) : n.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+const pct = (a, b) => (a == null || !b ? "" : `${a >= b ? "+" : ""}${(((a - b) / b) * 100).toFixed(2)}%`);
+const tok = (a) => `<span class="tok"><i>${esc(sym(a).slice(0, 4))}</i>${esc(sym(a))}</span>`;
 const read = (functionName, args = []) => pub.readContract({ address: TUTUP, abi, functionName, args });
-const saveKey = (id, who) => `tutup:${TUTUP}:${id}:${who}`;
+const balanceOf = (token, who) => pub.readContract({ address: token, abi: erc20, functionName: "balanceOf", args: [who] });
+const saveKey = (id, who) => `tutup:${TUTUP}:${id}:${who.toLowerCase()}`;
+const cost = (qty, price) => (qty * price + 10n ** 18n - 1n) / 10n ** 18n;
 
 function toast(msg, ms = 4000) {
   const t = $("toast");
@@ -101,24 +126,104 @@ async function ensureAllowance(token, amount) {
   await pub.waitForTransactionReceipt({ hash });
 }
 
+async function need(token, amount, what) {
+  const have = await balanceOf(token, account);
+  if (have < amount) {
+    const d = await decimals(token);
+    throw new Error(`${what} needs ${fmt(amount, d)} ${sym(token)}, you have ${fmt(have, d)}.${token === WIF ? " Get $WIF from the sidebar." : ""}`);
+  }
+}
+
+async function switchTo(c) {
+  try { await wallet.switchChain({ id: c.id }); } catch {
+    await wallet.addChain({ chain: defineChain({ id: c.id, name: c.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [c.rpc] } } }) });
+  }
+}
+
 async function connect() {
   if (!window.ethereum) throw new Error("no wallet found");
   wallet = createWalletClient({ chain, transport: custom(window.ethereum) });
   [account] = await wallet.requestAddresses();
-  try { await wallet.switchChain({ id: chain.id }); } catch { await wallet.addChain({ chain }); }
+  await switchTo(ORIGINS[0]);
   $("connect").textContent = short(account);
   route();
 }
+
+// --- prices: Chainlink first, Lighter's onchain order book when the feed is frozen, Robinhood's API for halts ---
 
 async function readFeed(addr) {
   const [, p, , at] = await pub.readContract({ address: addr, abi: feedAbi, functionName: "latestRoundData" });
   return { price: Number(p) / 1e8, ageH: (Date.now() / 1000 - Number(at)) / 3600 };
 }
 
+let lighterMarkets;
+async function lighter(symb) {
+  try {
+    lighterMarkets ??= fetch("https://api.rh.lighter.xyz/api/v1/orderBooks").then((r) => r.json()).then((d) => d.order_books || []);
+    const m = (await lighterMarkets).find((o) => o.market_type === "spot" && o.symbol === `${symb}/USDG` && o.status === "active");
+    if (!m) return null;
+    const [det, book] = await Promise.all([
+      fetch(`https://api.rh.lighter.xyz/api/v1/orderBookDetails?market_id=${m.market_id}`).then((r) => r.json()),
+      fetch(`https://api.rh.lighter.xyz/api/v1/orderBookOrders?market_id=${m.market_id}&limit=1`).then((r) => r.json()),
+    ]);
+    const d = (det.spot_order_book_details || det.order_book_details || [])[0] || {};
+    return { last: Number(d.last_trade_price) || null, bid: Number(book.bids?.[0]?.price) || null, ask: Number(book.asks?.[0]?.price) || null, vol: Number(d.daily_quote_token_volume) || 0, market: m.market_id };
+  } catch { return null; }
+}
+
+async function robinhood(symb) {
+  try {
+    const r = await fetch(`/api/rhj/prices/${encodeURIComponent(symb)}`);
+    if (!r.ok) return null;
+    const qte = (await r.json()).quotes?.[0];
+    return qte ? { bid: Number(qte.tokenBid || qte.bid), ask: Number(qte.tokenAsk || qte.ask), halt: !!qte.isTradingHalt } : null;
+  } catch { return null; }
+}
+
+async function stockState(t) {
+  const call = (functionName) => pub.readContract({ address: t.addr, abi: stockAbi, functionName }).catch(() => null);
+  const [mult, next, at, paused] = await Promise.all([call("uiMultiplier"), call("newUIMultiplier"), call("effectiveAt"), call("oraclePaused")]);
+  return { mult, paused, pending: mult != null && next != null && next !== mult && Number(at) > Date.now() / 1000 ? { next, at: Number(at) } : null };
+}
+
+/// US equity session from the New York clock. ponytail: ignores exchange holidays, the feed staleness check catches those.
+function session(d = new Date()) {
+  const ny = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = ny.getDay(), m = ny.getHours() * 60 + ny.getMinutes();
+  if (day === 6 || (day === 0 && m < 20 * 60) || (day === 5 && m >= 20 * 60)) return "weekend";
+  if (m >= 570 && m < 960) return "regular";
+  if (m >= 240 && m < 570) return "pre-market";
+  if (m >= 960 && m < 1200) return "after-hours";
+  return "overnight";
+}
+
+/// Everything known about one Stock Token right now, in USD.
+async function reference(t) {
+  const [f5, f7, lt, rh, st] = await Promise.all([
+    t.f5 ? readFeed(t.f5).catch(() => null) : null,
+    t.f7 ? readFeed(t.f7).catch(() => null) : null,
+    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t),
+  ]);
+  const closed = !f5 || f5.ageH > 2 || st?.paused || rh?.halt;
+  const best = f7 && f7.ageH < 1 ? { price: f7.price, src: "Chainlink 24/7" }
+    : f5 && !closed ? { price: f5.price, src: "Chainlink 24/5" }
+    : lt?.last ? { price: lt.last, src: "Lighter last trade" }
+    : f5 ? { price: f5.price, src: "Chainlink 24/5 (frozen)" } : null;
+  return { f5, f7, lt, rh, st, closed, best };
+}
+
+let wifUsdCache;
+async function quoteUsd(token) {
+  if (token === USDG) return (await readFeed(FEED_USDG)).price;
+  if (token === WETH) return (await readFeed(FEED_ETH)).price;
+  if (token === WIF) return (wifUsdCache ??= fetch("/api/rhj/wif-price").then((r) => r.json()).then((d) => d.usd).catch(() => null));
+  return null;
+}
+
 // --- data ---
 
 function phaseOf(a, now) {
-  if (a.settled) return "settled";
+  if (a.settled) return a.cancelled ? "cancelled" : "settled";
   if (now < a.commitEnd) return "commit";
   if (now < a.revealEnd) return "reveal";
   return "settle";
@@ -130,20 +235,47 @@ const left = (t, now) => {
   return s > 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m ${s % 60}s`;
 };
 
+let cancelledIds;
+const events = (eventName, args) =>
+  pub.getContractEvents({ address: TUTUP, abi, eventName, args, fromBlock: FROM_BLOCK }).catch(() => []);
+
 async function loadAuction(id) {
-  const [seller, lot, quote, feed, lotAmount, reserve, commitEnd, revealEnd, commits, reveals, settled] = await read("auctions", [id]);
-  return { id, seller, lot, quote, feed, lotAmount, reserve, commitEnd, revealEnd, commits, reveals, settled, qd: await decimals(quote) };
+  const [seller, lot, quote, feed, lotAmount, reserve, bond, commitEnd, revealEnd, commits, reveals, settled] = await read("auctions", [id]);
+  cancelledIds ??= events("Cancelled").then((l) => new Set(l.map((x) => x.args.id)));
+  const cancelled = settled && (await cancelledIds).has(id);
+  return { id, seller, lot, quote, feed, lotAmount, reserve, bond, commitEnd, revealEnd, commits, reveals, settled, cancelled, qd: await decimals(quote) };
 }
 
 async function loadAll() {
+  cancelledIds = null;
   const [count, now] = await Promise.all([read("auctionCount"), pub.getBlock().then((b) => b.timestamp)]);
   const ids = [...Array(Number(count)).keys()].reverse().map(BigInt);
-  const list = await Promise.all(ids.map(loadAuction));
-  return { now, list };
+  return { now, list: await Promise.all(ids.map(loadAuction)) };
 }
 
-const events = (eventName, args) =>
-  pub.getContractEvents({ address: TUTUP, abi, eventName, args, fromBlock: FROM_BLOCK }).catch(() => []);
+// --- bid receipts: the salt is the only way to reveal, so it can leave this browser as a file ---
+
+function saveReceipt(id, r) {
+  localStorage.setItem(saveKey(id, account), JSON.stringify(r));
+}
+
+function downloadReceipt(id, r) {
+  const blob = new Blob([JSON.stringify({ tutup: TUTUP, chainId: 4663, auction: id.toString(), bidder: account, ...r }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `tutup-bid-${id}-${account.slice(2, 8)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importReceipt(file, id) {
+  const r = JSON.parse(await file.text());
+  if (r.tutup?.toLowerCase() !== TUTUP.toLowerCase() || r.auction !== id.toString() || r.bidder?.toLowerCase() !== account.toLowerCase()) {
+    throw new Error("that receipt is for a different auction or wallet");
+  }
+  if (!/^0x[0-9a-f]{64}$/i.test(r.salt) || !/^\d+$/.test(r.qty) || !/^\d+$/.test(r.price)) throw new Error("receipt is malformed");
+  saveReceipt(id, { qty: r.qty, price: r.price, salt: r.salt, committed: true });
+}
 
 // --- views ---
 
@@ -155,19 +287,18 @@ async function vAuctions(filter = "all") {
     <section class="stats">
       <div class="card stat burn"><div class="k">$wif burned</div><div class="v" id="s-burned">…</div></div>
       <div class="card stat"><div class="k">auctions</div><div class="v" id="s-count">…</div></div>
-      <div class="card stat"><div class="k">nvda · 24/5 feed</div><div class="v" id="s-n5">…</div><div id="s-mkt"></div></div>
-      <div class="card stat"><div class="k">nvda · 24/7 feed</div><div class="v" id="s-n7">…</div></div>
+      <div class="card stat"><div class="k">us equities now</div><div class="v" id="s-sess">${session()}</div><div id="s-mkt"></div></div>
+      <div class="card stat"><div class="k">nvda · chainlink 24/7</div><div class="v" id="s-n7">…</div><div class="muted" id="s-n5" style="font-size:11px"></div></div>
     </section>
     <div class="card tablescroll" id="tbl"><div class="empty">loading…</div></div>`;
   view.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => vAuctions(b.dataset.f)));
 
-  const nv = TOKENS[0];
-  Promise.all([readFeed(nv.f5), readFeed(nv.f7)]).then(([a, b]) => {
-    $("s-n5").textContent = "$" + a.price.toFixed(2);
-    $("s-n7").textContent = "$" + b.price.toFixed(2);
-    const closed = a.ageH > 2; // ponytail: "closed" = official feed silent for 2h
-    $("s-mkt").innerHTML = `<span class="badge ${closed ? "b-closed" : "b-open"}">${closed ? `market closed · ${a.ageH.toFixed(1)}h` : "market open"}</span>`;
-  }).catch(() => {});
+  const nv = TOKENS.find((t) => t.sym === "NVDA");
+  if (nv) reference(nv).then((r) => {
+    $("s-n7").textContent = usd(r.f7?.price);
+    $("s-n5").textContent = r.f5 ? `24/5 feed ${usd(r.f5.price)} · ${r.f5.ageH.toFixed(1)}h old` : "";
+    $("s-mkt").innerHTML = `<span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.closed ? "official feed frozen" : "official feed live"}</span>`;
+  });
 
   if (!DEPLOYED) { $("s-burned").textContent = "–"; $("s-count").textContent = "–"; $("tbl").innerHTML = notDeployed; return; }
   const [burned, { now, list }] = await Promise.all([read("totalBurned"), loadAll()]);
@@ -175,72 +306,105 @@ async function vAuctions(filter = "all") {
   $("s-count").textContent = list.length;
   const rows = list.filter((a) => filter === "all" || (filter === "settled") === a.settled);
   if (!rows.length) { $("tbl").innerHTML = `<div class="empty">No auctions here yet. <a href="#create">List the first lot →</a></div>`; return; }
-  $("tbl").innerHTML = `<table><thead><tr><th>auction</th><th>lot → paid in</th><th>size</th><th>reserve</th><th>sealed bids</th><th>phase</th><th>closes in</th></tr></thead><tbody>
+  $("tbl").innerHTML = `<table><thead><tr><th>auction</th><th>lot → paid in</th><th>size</th><th>reserve</th><th>bond</th><th>sealed bids</th><th>phase</th><th>closes in</th></tr></thead><tbody>
     ${rows.map((a) => {
       const ph = phaseOf(a, now);
       const end = ph === "commit" ? a.commitEnd : a.revealEnd;
       return `<tr class="click" data-id="${a.id}"><td>#${a.id}</td><td>${tok(a.lot)}<span class="arrow">→</span>${tok(a.quote)}</td>
-        <td>${fmt(a.lotAmount, 18)}</td><td>${fmt(a.reserve, a.qd)} ${sym(a.quote)}</td><td>${a.commits}</td>
-        <td><span class="badge b-${ph}">${ph}</span></td><td>${ph === "settled" ? "–" : left(end, now)}</td></tr>`;
+        <td>${fmt(a.lotAmount, 18)}</td><td>${fmt(a.reserve, a.qd)} ${esc(sym(a.quote))}</td><td>${fmt(a.bond, 18, 0)} WIF</td><td>${a.commits}</td>
+        <td><span class="badge b-${ph}">${ph}</span></td><td>${a.settled ? "–" : left(end, now)}</td></tr>`;
     }).join("")}</tbody></table>`;
   $("tbl").querySelectorAll("tr[data-id]").forEach((r) => (r.onclick = () => (location.hash = `#a/${r.dataset.id}`)));
+}
+
+function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
+  const rows = [];
+  if (r.f7) rows.push(["Chainlink 24/7", usd(r.f7.price), `${r.f7.ageH.toFixed(1)}h old`]);
+  if (r.f5) rows.push(["Chainlink 24/5 (official)", usd(r.f5.price), r.f5.ageH > 2 ? `frozen ${r.f5.ageH.toFixed(1)}h` : "live"]);
+  if (r.lt) rows.push([`Lighter ${t.sym}/USDG`, usd(r.lt.last), `bid ${usd(r.lt.bid)} · ask ${usd(r.lt.ask)}`]);
+  if (r.rh) rows.push(["Robinhood quote", `${usd(r.rh.bid)} / ${usd(r.rh.ask)}`, r.rh.halt ? "trading halt" : "no halt"]);
+  if (r.st?.mult) rows.push(["ERC-8056 multiplier", (Number(r.st.mult) / 1e18).toFixed(6), r.st.pending ? `changes to ${(Number(r.st.pending.next) / 1e18).toFixed(6)} on ${new Date(r.st.pending.at * 1000).toLocaleDateString()}` : "no pending corporate action"]);
+  if (r.st) rows.push(["oraclePaused()", r.st.paused ? "true" : "false", r.st.paused ? "corporate action in progress" : ""]);
+  const ref = r.best?.price;
+  const reserveUsd = quoteUsdPrice && reserveUnits != null ? reserveUnits * quoteUsdPrice : null;
+  const clearUsd = quoteUsdPrice && clearingUnits != null ? clearingUnits * quoteUsdPrice : null;
+  return `<h3 style="margin-top:6px">Reference price</h3>
+    <div class="kv"><span>best reference</span><b>${usd(ref)} <span class="muted">${esc(r.best?.src || "none")}</span></b></div>
+    ${reserveUsd != null ? `<div class="kv"><span>reserve in USD</span><b>${usd(reserveUsd)} <span class="muted">${pct(reserveUsd, ref)}</span></b></div>` : ""}
+    ${clearUsd != null ? `<div class="kv"><span>clearing in USD</span><b>${usd(clearUsd)} <span class="muted">${pct(clearUsd, ref)} vs reference now</span></b></div>` : ""}
+    ${rows.map(([k, v, n]) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)} <span class="muted">${esc(n)}</span></b></div>`).join("")}`;
 }
 
 async function vAuction(id) {
   view.innerHTML = `<div class="card empty">loading auction #${id}…</div>`;
   if (!DEPLOYED) { view.innerHTML = notDeployed; return; }
+  cancelledIds = null; // a cancel may have just happened
   const [a, now] = await Promise.all([loadAuction(id), pub.getBlock().then((b) => b.timestamp)]);
   const ph = phaseOf(a, now);
   const saved = account && JSON.parse(localStorage.getItem(saveKey(id, account)) || "null");
+  const isSeller = account && account.toLowerCase() === a.seller.toLowerCase();
   const steps = ["commit", "reveal", "settle", "settled"];
-  const idx = steps.indexOf(ph);
+  const idx = steps.indexOf(ph === "cancelled" ? "settled" : ph);
+  const bondTxt = `${fmt(a.bond, 18, 0)} $WIF`;
 
   let action = "";
-  if (ph === "commit" && !(saved && saved.committed)) {
+  if (ph === "commit" && isSeller) {
+    action = `<h3>Your auction</h3><p class="note">Sellers can't bid in their own auction, because a seller bid would only move its own clearing price.</p>
+      ${a.commits === 0 ? `<div class="form" style="margin-top:10px"><p class="note">Nobody has bid yet, so you can still take the lot back. The listing fee stays burned.</p><button class="btn ghost" data-act="cancel">Cancel and return lot</button></div>` : ""}`;
+  } else if (ph === "commit" && !(saved && saved.committed)) {
     action = `<h3>Seal a bid</h3><div class="form">
-      <div class="two"><label>quantity (${sym(a.lot)})<input id="qty" placeholder="0.5" inputmode="decimal"></label>
-      <label>your price (${sym(a.quote)} each)<input id="price" placeholder="${fmt(a.reserve, a.qd)}" inputmode="decimal"></label></div>
-      <p class="note">Posts a 50 $WIF bond. Your quantity, price and salt are saved in this browser only. Lose them and you can't reveal, and the bond burns.</p>
-      <button class="btn" data-act="commit">Seal bid · 50 $WIF bond</button></div>`;
+      <div class="two"><label>quantity (${esc(sym(a.lot))})<input id="qty" placeholder="0.5" inputmode="decimal"></label>
+      <label>your price (${esc(sym(a.quote))} each)<input id="price" placeholder="${fmt(a.reserve, a.qd)}" inputmode="decimal"></label></div>
+      <p class="note" id="bidcost">Posts a ${bondTxt} bond. At reveal you'll escrow quantity × price.</p>
+      <p class="note">We save your quantity, price and salt in this browser and download a receipt file. Without them you can't reveal, and the bond burns.</p>
+      <button class="btn" data-act="commit">Seal bid · ${bondTxt} bond</button></div>`;
   } else if (ph === "commit") {
-    action = `<h3>Your bid</h3><div class="callout">Sealed: ${fmt(BigInt(saved.qty), 18)} ${sym(a.lot)} at ${fmt(BigInt(saved.price), a.qd)} ${sym(a.quote)}. Come back to reveal in ${left(a.commitEnd, now)}.</div>`;
+    action = `<h3>Your bid</h3><div class="callout">Sealed: ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Come back to reveal in ${left(a.commitEnd, now)}.</div>
+      <button class="btn ghost" data-act="receipt" style="margin-top:10px">Download receipt again</button>`;
   } else if (ph === "reveal" && saved && !saved.revealed) {
-    action = `<h3>Reveal</h3><div class="form"><div class="callout">You sealed ${fmt(BigInt(saved.qty), 18)} ${sym(a.lot)} at ${fmt(BigInt(saved.price), a.qd)} ${sym(a.quote)}. Revealing escrows payment and returns your bond.</div>
+    action = `<h3>Reveal</h3><div class="form"><div class="callout">You sealed ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Revealing escrows ${fmt(cost(BigInt(saved.qty), BigInt(saved.price)), a.qd)} ${esc(sym(a.quote))} and returns your ${bondTxt}.</div>
       <button class="btn" data-act="reveal">Reveal my bid</button></div>`;
   } else if (ph === "reveal") {
-    action = `<h3>Reveal phase</h3><p class="note">${saved ? "Your bid is revealed." : "Bidding is closed. Bidders are opening their bids."} Settlement opens in ${left(a.revealEnd, now)}.</p>`;
+    action = `<h3>Reveal phase</h3><p class="note">${saved ? "Your bid is revealed." : "Bidding is closed and bidders are opening their bids."} Settlement opens in ${left(a.revealEnd, now)}.</p>
+      ${account && !saved ? `<label style="margin-top:12px">bid on another device? import its receipt<input type="file" id="rcpt" accept="application/json"></label>` : ""}`;
   } else if (ph === "settle") {
-    action = `<h3>Ready to settle</h3><div class="form"><p class="note">Anyone can settle. Highest bids fill first and all winners pay the lowest winning price.</p><button class="btn" data-act="settle">Settle auction</button></div>`;
+    action = `<h3>Ready to settle</h3><div class="form"><p class="note">Anyone can settle. The highest bids fill first and every winner pays the lowest winning price. If a payout can't be delivered to someone (for example a frozen USDG account), it's held for them to claim, so nobody else is blocked.</p><button class="btn" data-act="settle">Settle auction</button></div>`;
+  } else if (ph === "cancelled") {
+    action = `<h3>Cancelled</h3><p class="note">The seller took the lot back before anyone bid.</p>`;
   }
 
   view.innerHTML = `<div class="head"><div><p class="eyebrow"><a href="#auctions">← auctions</a></p><h1>Auction #${id}</h1></div><span class="badge b-${ph}">${ph}</span></div>
     <div class="g2">
       <div class="card pad">
         <div class="timeline">${steps.map((s, i) => `<div class="${i < idx ? "done" : i === idx ? "now" : ""}">${s}</div>`).join("")}</div>
-        <div class="kv"><span>lot</span><b>${fmt(a.lotAmount, 18)} ${sym(a.lot)}</b></div>
-        <div class="kv"><span>paid in</span><b>${sym(a.quote)}</b></div>
-        <div class="kv"><span>reserve</span><b>${fmt(a.reserve, a.qd)} ${sym(a.quote)}</b></div>
-        <div class="kv"><span>seller</span><b><a href="${EXPLORER}/address/${a.seller}" target="_blank" rel="noopener">${short(a.seller)}</a></b></div>
+        <div class="kv"><span>lot</span><b>${fmt(a.lotAmount, 18)} ${esc(sym(a.lot))}</b></div>
+        <div class="kv"><span>paid in</span><b>${esc(sym(a.quote))}</b></div>
+        <div class="kv"><span>reserve</span><b>${fmt(a.reserve, a.qd)} ${esc(sym(a.quote))}</b></div>
+        <div class="kv"><span>bond per bid</span><b>${bondTxt}</b></div>
+        <div class="kv"><span>seller</span><b><a href="${EXPLORER}/address/${a.seller}" target="_blank" rel="noopener">${short(a.seller)}</a>${isSeller ? " (you)" : ""}</b></div>
         <div class="kv"><span>sealed bids</span><b>${a.commits}</b></div>
         <div class="kv"><span>revealed</span><b>${a.reveals}</b></div>
         <div class="kv"><span>commits close</span><b>${new Date(Number(a.commitEnd) * 1000).toLocaleString()}</b></div>
         <div class="kv"><span>reveals close</span><b>${new Date(Number(a.revealEnd) * 1000).toLocaleString()}</b></div>
         <div id="result"></div>
       </div>
-      <div class="card pad" id="act">${action || `<h3>Settled</h3><p class="note">This auction is closed.</p>`}</div>
+      <div style="display:grid;gap:16px"><div class="card pad" id="act">${action || `<h3>Settled</h3><p class="note">This auction is closed.</p>`}</div>
+      <div class="card pad" id="ref"><h3>Reference price</h3><p class="note">reading Chainlink, Lighter and Robinhood…</p></div></div>
     </div>
     <h3 style="margin-top:22px">Bid book</h3>
     <div class="card tablescroll" id="book"><div class="empty">${ph === "commit" ? "Bids are sealed. Nothing is visible until commits close." : "loading…"}</div></div>`;
 
-  if (ph !== "commit") {
+  let settledArgs;
+  if (ph !== "commit" && ph !== "cancelled") {
     const [bids, settledLogs, fills] = await Promise.all([read("bids", [id]), events("Settled", { id }), events("Filled", { id })]);
-    const s = settledLogs[0]?.args;
+    settledArgs = settledLogs[0]?.args;
+    const s = settledArgs;
     if (s) {
-      $("result").innerHTML = `<div class="kv"><span>clearing price</span><b>${fmt(s.clearingPrice, a.qd)} ${sym(a.quote)}</b></div>
-        <div class="kv"><span>sold</span><b>${fmt(s.sold, 18)} ${sym(a.lot)}</b></div>
-        <div class="kv"><span>proceeds to seller</span><b>${fmt(s.proceeds, a.qd)} ${sym(a.quote)}</b></div>
-        ${s.refPrice > 0n ? `<div class="kv"><span>Chainlink at settle</span><b>$${(Number(s.refPrice) / 1e8).toFixed(2)}</b></div>` : ""}
-        <div class="kv"><span>unrevealed bonds burned</span><b>${a.commits - a.reveals}</b></div>`;
+      $("result").innerHTML = `<div class="kv"><span>clearing price</span><b>${fmt(s.clearingPrice, a.qd)} ${esc(sym(a.quote))}</b></div>
+        <div class="kv"><span>sold</span><b>${fmt(s.sold, 18)} ${esc(sym(a.lot))}</b></div>
+        <div class="kv"><span>proceeds to seller</span><b>${fmt(s.proceeds, a.qd)} ${esc(sym(a.quote))}</b></div>
+        ${s.refPrice > 0n ? `<div class="kv"><span>Chainlink at settle</span><b>${usd(Number(s.refPrice) / 1e8)}</b></div>` : ""}
+        <div class="kv"><span>unrevealed bonds burned</span><b>${a.commits - a.reveals} × ${bondTxt}</b></div>`;
     }
     const filled = Object.fromEntries(fills.map((f) => [f.args.bidder.toLowerCase(), f.args]));
     const sorted = [...bids].sort((x, y) => (y.price > x.price ? 1 : y.price < x.price ? -1 : 0));
@@ -248,10 +412,34 @@ async function vAuction(id) {
       ${sorted.map((b) => {
         const f = filled[b.bidder.toLowerCase()];
         return `<tr><td><a href="${EXPLORER}/address/${b.bidder}" target="_blank" rel="noopener">${short(b.bidder)}</a>${account && b.bidder.toLowerCase() === account.toLowerCase() ? " (you)" : ""}</td>
-        <td>${fmt(b.qty, 18)}</td><td>${fmt(b.price, a.qd)} ${sym(a.quote)}</td>
-        ${s ? `<td>${f ? fmt(f.qty, 18) : "0"}</td><td>${f ? fmt(f.paid, a.qd) + " " + sym(a.quote) : "refunded"}</td><td><span class="badge ${f ? "b-won" : "b-lost"}">${f ? "won" : "lost"}</span></td>` : ""}</tr>`;
-      }).join("")}</tbody></table>` : `<div class="empty">No bids revealed yet.</div>`;
+        <td>${fmt(b.qty, 18)}</td><td>${fmt(b.price, a.qd)} ${esc(sym(a.quote))}</td>
+        ${s ? `<td>${f ? fmt(f.qty, 18) : "0"}</td><td>${f ? fmt(f.paid, a.qd) + " " + esc(sym(a.quote)) : "refunded"}</td><td><span class="badge ${f ? "b-won" : "b-lost"}">${f ? "won" : "lost"}</span></td>` : ""}</tr>`;
+      }).join("")}</tbody></table>` : `<div class="empty">No bids revealed.</div>`;
   }
+
+  // reference prices, in the background so the page never waits on a third party
+  const t = tokenOf(a.lot);
+  if (t && t.addr !== WIF) {
+    Promise.all([reference(t), quoteUsd(a.quote)]).then(([r, qu]) => {
+      const units = (v) => Number(formatUnits(v, a.qd));
+      $("ref").innerHTML = refPanel(t, r, qu, units(a.reserve), settledArgs ? units(settledArgs.clearingPrice) : null);
+    }).catch(() => ($("ref").innerHTML = `<h3>Reference price</h3><p class="note">Reference sources unavailable right now.</p>`));
+  } else {
+    quoteUsd(WIF).then((w) => ($("ref").innerHTML = `<h3>Reference price</h3><div class="kv"><span>$WIF (worldisflat.fun)</span><b>${usd(w)}</b></div><p class="note" style="margin-top:8px">WIF pools are thin, so a sealed auction is a better way to move a block of WIF than a swap.</p>`));
+  }
+
+  const qtyIn = $("qty"), priceIn = $("price");
+  if (qtyIn) {
+    const upd = () => {
+      try {
+        const c = cost(parseUnits(qtyIn.value || "0", 18), parseUnits(priceIn.value || "0", a.qd));
+        $("bidcost").textContent = `Posts a ${bondTxt} bond now. At reveal you'll escrow ${fmt(c, a.qd)} ${sym(a.quote)}, and anything above the clearing price comes back.`;
+      } catch {}
+    };
+    qtyIn.oninput = priceIn.oninput = upd;
+  }
+  const rc = $("rcpt");
+  if (rc) rc.onchange = async () => { try { await importReceipt(rc.files[0], id); toast("receipt imported ✓"); vAuction(id); } catch (e) { toast(e.message, 8000); } };
 
   $("act").addEventListener("click", async (e) => {
     const act = e.target.dataset?.act;
@@ -262,49 +450,88 @@ async function vAuction(id) {
       if (act === "commit") {
         const qty = parseUnits($("qty").value, 18);
         const price = parseUnits($("price").value, a.qd);
+        if (qty === 0n || qty > a.lotAmount) throw new Error(`quantity must be between 0 and ${fmt(a.lotAmount, 18)}`);
+        if (price < a.reserve) throw new Error(`price is below the reserve of ${fmt(a.reserve, a.qd)} ${sym(a.quote)}; the reveal would be refused`);
+        await need(WIF, a.bond, "The bond");
         const salt = toHex(crypto.getRandomValues(new Uint8Array(32)));
         const hash = keccak256(encodeAbiParameters(
           [{ type: "uint256" }, { type: "address" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes32" }],
           [id, account, qty, price, salt]));
-        // save before sending: losing the salt means losing the bond
-        const k = saveKey(id, account);
-        localStorage.setItem(k, JSON.stringify({ qty: qty.toString(), price: price.toString(), salt }));
-        await ensureAllowance(WIF, await read("bond"));
+        const r = { qty: qty.toString(), price: price.toString(), salt };
+        saveReceipt(id, r); // save before sending: losing the salt means losing the bond
+        downloadReceipt(id, r);
+        await ensureAllowance(WIF, a.bond);
         await send("commit", [id, hash], "seal bid");
-        localStorage.setItem(k, JSON.stringify({ qty: qty.toString(), price: price.toString(), salt, committed: true }));
+        saveReceipt(id, { ...r, committed: true });
       }
+      if (act === "receipt") downloadReceipt(id, saved);
       if (act === "reveal") {
         const qty = BigInt(saved.qty), price = BigInt(saved.price);
-        await ensureAllowance(a.quote, (qty * price + 10n ** 18n - 1n) / 10n ** 18n);
+        await need(a.quote, cost(qty, price), "Revealing");
+        await ensureAllowance(a.quote, cost(qty, price));
         await send("reveal", [id, qty, price, saved.salt], "reveal");
-        localStorage.setItem(saveKey(id, account), JSON.stringify({ ...saved, revealed: true }));
+        saveReceipt(id, { ...saved, revealed: true });
       }
       if (act === "settle") await send("settle", [id], "settle");
+      if (act === "cancel") await send("cancel", [id], "cancel");
       vAuction(id);
     } catch (err) {
-      toast(err.shortMessage || err.message, 8000);
+      toast(err.shortMessage || err.message, 9000);
       e.target.disabled = false;
     }
   });
 }
 
-function vCreate() {
+async function vCreate() {
+  const stock = TOKENS.filter((t) => t.lot && t.addr !== WIF);
   view.innerHTML = `<div class="head"><div><p class="eyebrow">escrow a lot · burns 100 $wif</p><h1>List a lot</h1></div></div>
     <div class="g2"><div class="card pad"><form id="create" class="form">
-      <div class="two"><label>lot token<select name="lot">${TOKENS.filter((t) => t.lot).map((t) => `<option value="${t.addr}">${t.sym}</option>`).join("")}</select></label>
-      <label>paid in<select name="quote">${TOKENS.filter((t) => t.quote).map((t) => `<option value="${t.addr}" ${t.sym === "USDG" ? "selected" : ""}>${t.sym}</option>`).join("")}</select></label></div>
-      <div class="two"><label>amount<input name="amount" required inputmode="decimal" placeholder="1"></label>
-      <label>reserve price (per token)<input name="reserve" required inputmode="decimal" placeholder="150"></label></div>
+      <div class="two"><label>lot token<select name="lot" id="lotSel"><option value="${WIF}">WIF · World is Flat</option>
+        <optgroup label="Stock Tokens with Chainlink feeds">${stock.filter((t) => t.f5).map((t) => `<option value="${t.addr}">${esc(t.sym)} · ${esc(t.name)}</option>`).join("")}</optgroup>
+        <optgroup label="Other Stock Tokens">${stock.filter((t) => !t.f5).map((t) => `<option value="${t.addr}">${esc(t.sym)} · ${esc(t.name)}</option>`).join("")}</optgroup></select></label>
+      <label>paid in<select name="quote" id="quoteSel">${TOKENS.filter((t) => t.quote).map((t) => `<option value="${t.addr}" ${t.sym === "USDG" ? "selected" : ""}>${t.sym}</option>`).join("")}</select></label></div>
+      <div class="two"><label>amount <span id="lotBal" class="muted"></span><input name="amount" required inputmode="decimal" placeholder="1"></label>
+      <label>reserve price (per token) <a href="#" id="suggest" style="text-transform:none">suggest</a><input name="reserve" id="reserveIn" required inputmode="decimal" placeholder="150"></label></div>
+      <div class="two"><label>bond per bid ($WIF, min <span id="minb">50</span>)<input name="bond" id="bondIn" inputmode="decimal" value="50"></label>
+      <label>your $WIF <span id="wifBal" class="muted"></span><input disabled value="listing burns 100"></label></div>
       <div class="two"><label>commit window (minutes)<input name="commitMin" type="number" min="5" value="60"></label>
       <label>reveal window (minutes)<input name="revealMin" type="number" min="5" value="30"></label></div>
+      <p class="note" id="refNote"></p>
       <button class="btn" type="submit">List auction</button></form></div>
     <div class="card pad"><h3>What happens</h3>
       <div class="kv"><span>listing fee</span><b>100 $WIF, burned</b></div>
       <div class="kv"><span>your lot</span><b>escrowed until settle</b></div>
       <div class="kv"><span>unsold amount</span><b>returned to you</b></div>
-      <div class="kv"><span>below reserve</span><b>can't be revealed</b></div>
-      <div class="kv"><span>reference price</span><b>Chainlink, 24/7 feed where available</b></div>
-      <p class="note" style="margin-top:12px">List before the close, for example at Friday 16:00 ET, and settle over the weekend while mint and burn are shut.</p></div></div>`;
+      <div class="kv"><span>nobody bids yet?</span><b>you can cancel</b></div>
+      <div class="kv"><span>bond</span><b>raise it to price out griefers</b></div>
+      <div class="kv"><span>reference price</span><b>Chainlink, recorded at settle</b></div>
+      <p class="note" style="margin-top:12px">Right now US equities are in <b>${session()}</b>. List before the Friday close and settle over the weekend, while mint and burn are shut.</p></div></div>`;
+
+  if (DEPLOYED) read("minBond").then((m) => { $("minb").textContent = fmt(m, 18, 0); $("bondIn").value = formatUnits(m, 18); }).catch(() => {});
+  const refresh = async () => {
+    const lot = $("lotSel").value, quote = $("quoteSel").value;
+    $("refNote").textContent = "";
+    if (account) {
+      Promise.all([balanceOf(lot, account), balanceOf(WIF, account)]).then(([l, w]) => {
+        $("lotBal").textContent = `· you have ${fmt(l, 18)}`;
+        $("wifBal").textContent = `· you have ${fmt(w, 18, 0)}`;
+      }).catch(() => {});
+    }
+    const t = tokenOf(lot);
+    if (t && t.addr !== WIF) {
+      const [r, qu] = await Promise.all([reference(t), quoteUsd(quote)]);
+      refresh.suggest = r.best && qu ? (r.best.price / qu) * 0.97 : null;
+      $("refNote").textContent = r.best ? `Reference ${usd(r.best.price)} from ${r.best.src}${r.closed ? ", and the official feed is frozen right now" : ""}. "Suggest" sets the reserve 3% under it.` : "No reference price for this token.";
+    } else {
+      const [w, qu] = await Promise.all([quoteUsd(WIF), quoteUsd(quote)]);
+      refresh.suggest = w && qu ? (w / qu) * 0.97 : null;
+      $("refNote").textContent = w ? `$WIF trades around ${usd(w)}. "Suggest" sets the reserve 3% under it.` : "";
+    }
+  };
+  $("lotSel").onchange = $("quoteSel").onchange = refresh;
+  $("suggest").onclick = (e) => { e.preventDefault(); if (refresh.suggest) $("reserveIn").value = refresh.suggest.toPrecision(6); };
+  refresh();
+
   $("create").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -318,14 +545,18 @@ function vCreate() {
       const qd = await decimals(quote);
       const amount = parseUnits(f.get("amount"), 18);
       const reserve = parseUnits(f.get("reserve"), qd);
-      const t = TOKENS.find((x) => x.addr === lot);
-      const fee = await read("listFee");
+      const bond = parseUnits(f.get("bond"), 18);
+      const [fee, minBond] = await Promise.all([read("listFee"), read("minBond")]);
+      if (bond < minBond) throw new Error(`bond must be at least ${fmt(minBond, 18, 0)} $WIF`);
+      if (lot === WIF) await need(WIF, amount + fee, "Listing WIF");
+      else { await need(lot, amount, "The lot"); await need(WIF, fee, "The listing fee"); }
+      const t = tokenOf(lot);
       await ensureAllowance(lot, lot === WIF ? amount + fee : amount);
       if (lot !== WIF) await ensureAllowance(WIF, fee);
-      await send("create", [lot, quote, amount, reserve, BigInt(f.get("commitMin")) * 60n, BigInt(f.get("revealMin")) * 60n, t.f7 || t.f5 || NONE], "list auction");
+      await send("create", [lot, quote, amount, reserve, bond, BigInt(f.get("commitMin")) * 60n, BigInt(f.get("revealMin")) * 60n, t?.f7 || t?.f5 || NONE], "list auction");
       location.hash = `#a/${(await read("auctionCount")) - 1n}`;
     } catch (err) {
-      toast(err.shortMessage || err.message, 8000);
+      toast(err.shortMessage || err.message, 9000);
     } finally {
       btn.disabled = false;
     }
@@ -333,10 +564,29 @@ function vCreate() {
 }
 
 async function vMine() {
-  view.innerHTML = `<div class="head"><div><p class="eyebrow">sealed in this browser</p><h1>My bids</h1></div></div><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
-  if (!account) { $("mine").innerHTML = `<div class="empty">Connect your wallet to see your bids.</div>`; return; }
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">balances · bids · payouts held for you</p><h1>My account</h1></div></div>
+    <section class="stats" id="bals"></section><div id="owedBox"></div>
+    <h3 style="margin-top:6px">My sealed bids</h3><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
+  if (!account) { $("mine").innerHTML = `<div class="empty">Connect your wallet to see your account.</div>`; return; }
+  const ethBal = await pub.getBalance({ address: account });
+  const bals = await Promise.all(BASE_TOKENS.map((t) => balanceOf(t.addr, account).then((b) => [t, b]).catch(() => [t, 0n])));
+  $("bals").innerHTML = `<div class="card stat"><div class="k">eth (gas)</div><div class="v">${fmt(ethBal, 18, 5)}</div></div>`
+    + bals.map(([t, b]) => `<div class="card stat"><div class="k">${t.sym.toLowerCase()}</div><div class="v">${fmt(b, t.addr === USDG ? 6 : 18, 2)}</div></div>`).join("");
+
+  if (DEPLOYED) {
+    const owedLogs = await events("Owed", { to: account });
+    const tokens = [...new Set(owedLogs.map((l) => l.args.token))];
+    const owed = (await Promise.all(tokens.map(async (tk) => [tk, await read("owed", [tk, account])]))).filter(([, v]) => v > 0n);
+    $("owedBox").innerHTML = owed.length ? `<div class="card pad" style="margin-bottom:16px"><h3>Held for you</h3>${await Promise.all(owed.map(async ([tk, v]) =>
+      `<div class="kv"><span>${fmt(v, await decimals(tk))} ${esc(sym(tk))}</span><b><button class="btn" data-claim="${tk}">Claim</button></b></div>`)).then((x) => x.join(""))}</div>` : "";
+    $("owedBox").querySelectorAll("[data-claim]").forEach((b) => (b.onclick = async () => {
+      b.disabled = true;
+      try { await send("claim", [b.dataset.claim], "claim"); vMine(); } catch (err) { toast(err.shortMessage || err.message, 8000); b.disabled = false; }
+    }));
+  }
+
   const prefix = `tutup:${TUTUP}:`;
-  const mine = Object.keys(localStorage).filter((k) => k.startsWith(prefix) && k.toLowerCase().endsWith(account.toLowerCase()))
+  const mine = Object.keys(localStorage).filter((k) => k.startsWith(prefix) && k.endsWith(account.toLowerCase()))
     .map((k) => ({ id: BigInt(k.slice(prefix.length).split(":")[0]), ...JSON.parse(localStorage.getItem(k)) }));
   if (!mine.length) { $("mine").innerHTML = `<div class="empty">No sealed bids from this browser yet. <a href="#auctions">Find an auction →</a></div>`; return; }
   const now = (await pub.getBlock()).timestamp;
@@ -344,37 +594,120 @@ async function vMine() {
   $("mine").innerHTML = `<table><thead><tr><th>auction</th><th>lot</th><th>your bid</th><th>phase</th><th>next</th></tr></thead><tbody>
     ${rows.map(({ m, a }) => {
       const ph = phaseOf(a, now);
-      const next = ph === "reveal" && !m.revealed ? "reveal now" : ph === "commit" ? `reveal in ${left(a.commitEnd, now)}` : ph === "settle" ? "settle" : m.revealed ? "done" : "bond burned";
-      return `<tr class="click" data-id="${a.id}"><td>#${a.id}</td><td>${tok(a.lot)}</td><td>${fmt(BigInt(m.qty), 18)} @ ${fmt(BigInt(m.price), a.qd)} ${sym(a.quote)}</td>
+      const next = ph === "reveal" && !m.revealed ? "<b>reveal now</b>" : ph === "commit" ? `reveal in ${left(a.commitEnd, now)}` : ph === "settle" ? "settle" : m.revealed ? "done" : m.committed ? "bond burned" : "not sent";
+      return `<tr class="click" data-id="${a.id}"><td>#${a.id}</td><td>${tok(a.lot)}</td><td>${fmt(BigInt(m.qty), 18)} @ ${fmt(BigInt(m.price), a.qd)} ${esc(sym(a.quote))}</td>
         <td><span class="badge b-${ph}">${ph}</span></td><td>${next}</td></tr>`;
     }).join("")}</tbody></table>`;
   $("mine").querySelectorAll("tr[data-id]").forEach((r) => (r.onclick = () => (location.hash = `#a/${r.dataset.id}`)));
 }
 
 async function vMarket() {
-  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink on robinhood chain</p><h1>Market hours</h1></div></div>
-    <div class="callout" style="margin-bottom:14px">Official Stock Token feeds update 24/5. When one has been silent for hours the market is closed, and that's when a Tutup auction gives a fairer price than a stale feed or a thin RFQ quote. Chainlink publishes 24/7 feeds for a few names, which Tutup records as the reference.</div>
-    <div class="card tablescroll" id="mkt"><div class="empty">reading feeds…</div></div>`;
-  const rows = await Promise.all(TOKENS.filter((t) => t.f5).map(async (t) => ({ t, a: await readFeed(t.f5).catch(() => null), b: t.f7 ? await readFeed(t.f7).catch(() => null) : null })));
-  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 price</th><th>last update</th><th>24/7 price</th><th>status</th><th>contract</th></tr></thead><tbody>
-    ${rows.map(({ t, a, b }) => `<tr><td>${tok(t.addr)}</td><td>${a ? "$" + a.price.toFixed(2) : "–"}</td><td>${a ? a.ageH.toFixed(1) + "h ago" : "–"}</td>
-      <td>${b ? "$" + b.price.toFixed(2) : "–"}</td><td>${a ? `<span class="badge ${a.ageH > 2 ? "b-closed" : "b-open"}">${a.ageH > 2 ? "closed" : "open"}</span>` : "–"}</td>
-      <td><a href="${EXPLORER}/token/${t.addr}" target="_blank" rel="noopener">${short(t.addr)}</a></td></tr>`).join("")}</tbody></table>`;
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · lighter · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
+    <div class="callout" style="margin-bottom:14px">Official Stock Token feeds update 24/5. When one goes silent, or the token reports <code>oraclePaused()</code> during a corporate action, the market behind it is closed. That's when a Tutup auction finds a fairer price than a frozen feed. Lighter's onchain order book and Chainlink's 24/7 feeds show where trading actually is.</div>
+    <div class="card tablescroll" id="mkt"><div class="empty">reading ${TOKENS.filter((t) => t.f5).length} feeds, order books and multipliers…</div></div>`;
+  const list = TOKENS.filter((t) => t.f5);
+  const rows = await Promise.all(list.map(async (t) => ({ t, r: await reference(t) })));
+  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 feed</th><th>age</th><th>24/7 feed</th><th>Lighter last</th><th>multiplier</th><th>status</th></tr></thead><tbody>
+    ${rows.map(({ t, r }) => `<tr><td>${tok(t.addr)} <span class="muted">${esc(t.name)}</span></td><td>${usd(r.f5?.price)}</td><td>${r.f5 ? r.f5.ageH.toFixed(1) + "h" : "–"}</td>
+      <td>${usd(r.f7?.price)}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
+      <td>${r.st?.mult ? (Number(r.st.mult) / 1e18).toFixed(4) : "–"}${r.st?.pending ? ` <span class="badge b-reveal">pending</span>` : ""}</td>
+      <td><span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.st?.paused ? "corp action" : r.rh?.halt ? "halted" : r.closed ? "frozen" : "live"}</span></td></tr>`).join("")}</tbody></table>`;
+}
+
+async function vPrints() {
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">clearing prices vs chainlink at settle</p><h1>Weekend prints</h1></div></div>
+    <div class="callout" style="margin-bottom:14px">Every sale writes <code>lastPrint(lot, quote)</code> on chain: the clearing price, the amount sold and when. Any contract can read it, so the price a sealed auction discovered while the market was shut becomes something a lending market or vault can use.</div>
+    <div class="card tablescroll" id="prints"><div class="empty">loading…</div></div>`;
+  if (!DEPLOYED) { $("prints").innerHTML = notDeployed; return; }
+  const logs = await events("Settled");
+  const sold = logs.filter((l) => l.args.sold > 0n).reverse();
+  if (!sold.length) { $("prints").innerHTML = `<div class="empty">No prints yet. The first settled sale will appear here.</div>`; return; }
+  const rows = await Promise.all(sold.map(async (l) => {
+    const a = await loadAuction(l.args.id);
+    const qu = await quoteUsd(a.quote);
+    const clearUsd = qu ? Number(formatUnits(l.args.clearingPrice, a.qd)) * qu : null;
+    const ref = l.args.refPrice > 0n ? Number(l.args.refPrice) / 1e8 : null;
+    const blk = await pub.getBlock({ blockNumber: l.blockNumber });
+    return `<tr class="click" data-id="${a.id}"><td>#${a.id}</td><td>${new Date(Number(blk.timestamp) * 1000).toLocaleString()}</td><td>${tok(a.lot)}</td>
+      <td>${fmt(l.args.clearingPrice, a.qd)} ${esc(sym(a.quote))}</td><td>${usd(clearUsd)}</td><td>${usd(ref)}</td><td>${pct(clearUsd, ref) || "–"}</td><td>${fmt(l.args.sold, 18)}</td></tr>`;
+  }));
+  $("prints").innerHTML = `<table><thead><tr><th>auction</th><th>settled</th><th>lot</th><th>clearing</th><th>in USD</th><th>Chainlink then</th><th>vs Chainlink</th><th>sold</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+  $("prints").querySelectorAll("tr[data-id]").forEach((r) => (r.onclick = () => (location.hash = `#a/${r.dataset.id}`)));
 }
 
 async function vBurns() {
   view.innerHTML = `<div class="head"><div><p class="eyebrow">every burn is on chain</p><h1>$WIF burns</h1></div></div>
     <section class="stats"><div class="card stat burn"><div class="k">total burned</div><div class="v" id="b-total">…</div></div>
-    <div class="card stat"><div class="k">listing fee</div><div class="v">100</div></div><div class="card stat"><div class="k">bid bond</div><div class="v">50</div></div>
+    <div class="card stat"><div class="k">listing fee</div><div class="v">100</div></div><div class="card stat"><div class="k">min bond</div><div class="v" id="b-min">…</div></div>
     <div class="card stat"><div class="k">owner / admin</div><div class="v">none</div></div></section>
     <div class="card tablescroll" id="burns"><div class="empty">loading…</div></div>`;
   if (!DEPLOYED) { $("b-total").textContent = "–"; $("burns").innerHTML = notDeployed; return; }
-  const [total, logs] = await Promise.all([read("totalBurned"), events("Burned")]);
+  const [total, minBond, logs] = await Promise.all([read("totalBurned"), read("minBond"), events("Burned")]);
   $("b-total").textContent = fmt(total, 18, 0);
+  $("b-min").textContent = fmt(minBond, 18, 0);
   $("burns").innerHTML = logs.length ? `<table><thead><tr><th>auction</th><th>amount</th><th>reason</th><th>tx</th></tr></thead><tbody>
     ${[...logs].reverse().map((l) => `<tr><td><a href="#a/${l.args.id}">#${l.args.id}</a></td><td><span class="badge b-burn">${fmt(l.args.amount, 18, 0)} $WIF</span></td>
       <td>${l.args.reason === "listing" ? "listing fee" : "unrevealed bond"}</td><td><a href="${EXPLORER}/tx/${l.transactionHash}" target="_blank" rel="noopener">${l.transactionHash.slice(0, 12)}…</a></td></tr>`).join("")}</tbody></table>`
     : `<div class="empty">No burns yet.</div>`;
+}
+
+async function vGetWif() {
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">relay · any chain to robinhood chain</p><h1>Get $WIF</h1></div></div>
+    <div class="g2"><div class="card pad"><form id="relay" class="form">
+      <div class="two"><label>pay with ETH on<select name="origin">${ORIGINS.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")}</select></label>
+      <label>amount of ETH<input name="amount" inputmode="decimal" value="0.0005"></label></div>
+      <button class="btn ghost" type="button" id="quoteBtn">Get quote</button>
+      <div id="quoteOut"></div>
+      <button class="btn" type="submit" id="goBtn" disabled>Swap to $WIF</button></form></div>
+    <div class="card pad"><h3>How it works</h3><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready.</p>
+      <div class="kv"><span>delivered to</span><b>${account ? short(account) : "your connected wallet"}</b></div>
+      <div class="kv"><span>status API</span><b>/intents/status/v3</b></div></div></div>`;
+  let quote;
+  const getQuote = async () => {
+    if (!account) await connect();
+    const f = new FormData($("relay"));
+    const amount = parseUnits(f.get("amount"), 18).toString();
+    $("quoteOut").innerHTML = `<p class="note">quoting…</p>`;
+    const r = await fetch("https://api.relay.link/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+      user: account, recipient: account, originChainId: Number(f.get("origin")), destinationChainId: 4663,
+      originCurrency: NONE, destinationCurrency: WIF, amount, tradeType: "EXACT_INPUT" }) }).then((x) => x.json());
+    if (!r.steps) throw new Error(r.message || "no route");
+    quote = r;
+    const out = r.details?.currencyOut;
+    $("quoteOut").innerHTML = `<div class="callout">You receive about <b>${Number(out.amountFormatted).toLocaleString(undefined, { maximumFractionDigits: 2 })} $WIF</b> (${usd(Number(out.amountUsd))}) on Robinhood Chain.<br>Fees ${usd(Number(r.fees?.relayer?.amountUsd || 0) + Number(r.fees?.gas?.amountUsd || 0))} · about ${r.details?.timeEstimate ?? "?"}s.</div>`;
+    $("goBtn").disabled = false;
+  };
+  $("quoteBtn").onclick = () => getQuote().catch((e) => { $("quoteOut").innerHTML = `<div class="callout">Relay can't route this: ${esc(e.message)}</div>`; $("goBtn").disabled = true; });
+  $("relay").onsubmit = async (e) => {
+    e.preventDefault();
+    $("goBtn").disabled = true;
+    try {
+      for (const step of quote.steps) {
+        for (const item of step.items) {
+          if (step.kind !== "transaction") throw new Error(`step "${step.id}" needs a signature this page doesn't support`);
+          const d = item.data;
+          const origin = ORIGINS.find((c) => c.id === d.chainId) || ORIGINS[0];
+          await switchTo(origin);
+          toast(`${step.description || step.id}: confirm in your wallet…`, 60000);
+          const w = createWalletClient({ account, transport: custom(window.ethereum) });
+          const hash = await w.sendTransaction({ account, chain: null, to: d.to, data: d.data, value: BigInt(d.value || 0) });
+          toast(`sent ${hash.slice(0, 10)}… on ${origin.name}, waiting for Relay`, 60000);
+        }
+      }
+      const id = quote.steps[0].requestId;
+      for (let i = 0; i < 90; i++) {
+        const s = await fetch(`https://api.relay.link/intents/status/v3?requestId=${id}`).then((x) => x.json());
+        if (s.status === "success") { toast("$WIF arrived on Robinhood Chain ✓", 8000); break; }
+        if (s.status === "refund" || s.status === "failure") throw new Error(`Relay ${s.status}`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      await switchTo(ORIGINS[0]);
+      location.hash = "#mine";
+    } catch (err) {
+      toast(err.shortMessage || err.message, 9000);
+      $("goBtn").disabled = false;
+    }
+  };
 }
 
 function vDocs() {
@@ -383,18 +716,27 @@ function vDocs() {
       <h3>The problem</h3>
       <p>Stock Tokens on Robinhood Chain are ERC-20s that trade 24/7. Their official Chainlink feeds update 24/5, and Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. On weekends and during corporate actions (<code>oraclePaused()</code>) nobody can arbitrage a token back to its share. Quotes go thin, and on a first-come-first-served sequencer the fastest bot sets the price.</p>
       <h3>The mechanism</h3>
-      <p><b>Commit.</b> Post <code>keccak256(abi.encode(id, bidder, qty, price, salt))</code> and a 50 $WIF bond.<br><b>Reveal.</b> Open the bid and escrow <code>qty × price</code>. Your bond comes back. If you never reveal, the bond is burned.<br><b>Settle.</b> Anyone can call it. Bids sort by price and ties break on <code>keccak256(id, bidder)</code>. The highest bids fill, and every winner pays the marginal (lowest winning) price. Losers are refunded and unsold lot returns to the seller.</p>
+      <p><b>Commit.</b> Post <code>keccak256(abi.encode(id, bidder, qty, price, salt))</code> and the auction's $WIF bond. The page also downloads a receipt file, so you can reveal from any device.<br><b>Reveal.</b> Open the bid and escrow <code>qty × price</code>, and your bond comes back. If you never reveal, the bond is burned.<br><b>Settle.</b> Anyone can call it. Bids sort by price and ties break on <code>keccak256(id, bidder)</code>. The highest bids fill, and every winner pays the marginal (lowest winning) price. Losers are refunded and unsold lot returns to the seller.</p>
+      <h3>Safety</h3>
+      <p>Payouts that can't be delivered, for example to a frozen USDG account, are held in <code>owed</code> for <code>claim()</code>, so one bad recipient can't lock an auction. Fee-on-transfer tokens are refused. Sellers can't bid in their own auction. Each seller sets the bond, at least the floor, so griefing a book of 64 bids costs whatever the seller decides. A seller can cancel only while nobody has bid.</p>
+      <h3>Prints</h3>
+      <p>Every sale writes <code>lastPrint(lot, quote)</code>, the weekend price that sealed bids discovered, for any contract to read.</p>
       <h3>$WIF</h3>
-      <p>Each listing burns 100 $WIF through WIF's own <code>burn()</code>, and unrevealed bonds burn too. The bond is what makes a sealed bid credible: without it, a fake bid costs nothing.</p>
+      <p>Each listing burns 100 $WIF through WIF's own <code>burn()</code>, and unrevealed bonds burn too. The bond is what makes a sealed bid credible: without it, a fake bid costs nothing. New bidders can get $WIF from any chain through Relay.</p>
       <h3>Limits, honestly</h3>
-      <p>An auction takes at most 64 bids, because they are sorted on chain. Payouts are pushed at settlement. Bid sizes become public at reveal, but only after commits have closed.</p>
+      <p>An auction takes at most 64 bids, because they are sorted on chain. Bid sizes become public at reveal, but only after commits have closed. Robinhood Chain has no Chainlink sequencer-uptime feed, so prices are judged by staleness instead.</p>
+      <h3>Prior art</h3>
+      <p>The uniform clearing price follows batch auctions like Gnosis EasyAuction and CoW. The commit–reveal bond is the classic sealed-bid answer when a chain has no private compute.</p>
     </div>
     <div class="card pad"><h3>Contract</h3>
       <div class="kv"><span>Tutup</span><b>${DEPLOYED ? `<a href="${EXPLORER}/address/${TUTUP}" target="_blank" rel="noopener">${short(TUTUP)}</a>` : "deploying"}</b></div>
+      <div class="kv"><span>first deployment</span><b><a href="${EXPLORER}/address/${V1}" target="_blank" rel="noopener">${short(V1)}</a></b></div>
+      <div class="kv"><span>verified</span><b><a href="https://repo.sourcify.dev/4663/${TUTUP}" target="_blank" rel="noopener">Sourcify</a></b></div>
       <div class="kv"><span>owner</span><b>none</b></div><div class="kv"><span>upgradeable</span><b>no</b></div>
       <div class="kv"><span>$WIF</span><b><a href="${EXPLORER}/token/${WIF}" target="_blank" rel="noopener">${short(WIF)}</a></b></div>
       <div class="kv"><span>chain</span><b>Robinhood Chain · 4663</b></div>
       <div class="kv"><span>min phase</span><b>5 minutes</b></div><div class="kv"><span>max bids</span><b>64</b></div>
+      <div class="kv"><span>stock tokens listed</span><b>${TOKENS.length - BASE_TOKENS.length}</b></div>
       <div class="kv"><span>source</span><b><a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">github</a></b></div>
     </div></div>
     <p class="foot">Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</p>`;
@@ -406,12 +748,13 @@ function route() {
   const h = location.hash.slice(1) || "auctions";
   const m = h.match(/^a\/(\d+)$/);
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === (m ? "auctions" : h)));
-  const run = m ? vAuction(BigInt(m[1])) : ({ create: vCreate, mine: vMine, market: vMarket, burns: vBurns, docs: vDocs }[h] || vAuctions)();
+  const run = m ? vAuction(BigInt(m[1])) : ({ create: vCreate, mine: vMine, market: vMarket, prints: vPrints, burns: vBurns, wif: vGetWif, docs: vDocs }[h] || vAuctions)();
   Promise.resolve(run).catch((e) => { console.error(e); toast(e.shortMessage || e.message, 8000); });
 }
 
 $("connect").addEventListener("click", () => connect().catch((e) => toast(e.message)));
 if (RPC !== DEFAULT.rpc) $("net").textContent = "local fork · " + short(TUTUP) + " · " + RPC.replace(/^https?:\/\//, "");
 addEventListener("hashchange", route);
-route();
-setInterval(() => { if (!["#create", "#docs"].includes(location.hash) && !document.querySelector("input:focus, select:focus")) route(); }, 30000);
+fetch("tokens.json").then((r) => r.json()).then((list) => { TOKENS = [...BASE_TOKENS, ...list.map((t) => ({ ...t, lot: true }))]; }).catch(() => {}).finally(route);
+// ponytail: refresh live views on a timer; forms and long reads are left alone
+setInterval(() => { if (["", "#auctions", "#burns"].includes(location.hash) || /^#a\/\d+$/.test(location.hash)) { if (!document.querySelector("input:focus, select:focus")) route(); } }, 30000);

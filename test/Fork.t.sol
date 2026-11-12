@@ -36,7 +36,7 @@ contract ForkTest is Test {
         vm.startPrank(seller);
         IERC20Full(WIF).approve(address(t), type(uint256).max);
         IERC20Full(NVDA).approve(address(t), type(uint256).max);
-        uint256 id = t.create(IERC20(NVDA), IERC20(USDG), 1e18, 100e6, 1 hours, 1 hours, NVDA_FEED_247);
+        uint256 id = t.create(IERC20(NVDA), IERC20(USDG), 1e18, 100e6, 50e18, 1 hours, 1 hours, NVDA_FEED_247);
         vm.stopPrank();
 
         assertEq(IERC20Full(WIF).totalSupply(), supply0 - 100e18, "real WIF burned");
@@ -55,5 +55,7 @@ contract ForkTest is Test {
 
         assertEq(IERC20Full(NVDA).balanceOf(alice), 1e18);
         assertEq(IERC20Full(USDG).balanceOf(seller), 150e6);
+        (uint128 printPrice,,,) = t.lastPrint(NVDA, USDG);
+        assertEq(printPrice, 150e6, "weekend print recorded");
     }
 }
