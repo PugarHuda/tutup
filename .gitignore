@@ -4,3 +4,4 @@ broadcast/
 .env
 .playwright-mcp/
 web/node_modules/
+web/_signer.mjs

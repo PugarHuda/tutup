@@ -7,6 +7,7 @@
 // exist for the anvil-fork test (scripts/keeper-fork-test.mjs).
 import { createPublicClient, createWalletClient, http, fallback, parseAbi, keccak256, encodeAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { openReceipt } from "../tlock-backup.js";
 
 const TUTUP = process.env.KEEPER_TEST_TUTUP || "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
 const WIF = "0x5173b8eA6923c2d40267890D45C46a3480954773";
@@ -19,6 +20,7 @@ const abi = parseAbi([
   "function commit(uint256 id, bytes32 hash)",
   "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
+  "event Committed(uint256 indexed id, address indexed bidder)",
 ]);
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address, address) view returns (uint256)", "function approve(address, uint256) returns (bool)"]);
 // Tutup is permissionless, so anyone can list a lot with an inflated reserve, a huge bond or a 5-minute reveal
@@ -84,8 +86,17 @@ export async function runKeeper() {
         log.push({ id: i, committed: await send(TUTUP, abi, "commit", [id, hash]) });
         promised[k] = need;
       } else if (now >= commitEnd && now < revealEnd && sealed) {
-        await allow(quote, cost(qty, price));
-        log.push({ id: i, revealed: await send(TUTUP, abi, "reveal", [id, qty, price, salt(id)]) });
+        // its own rule-based bids use the derived salt; a bid placed by hand from the desk with this wallet is
+        // recovered from its commit calldata (drand timelock, unlocked once commits close) and revealed too
+        let r = { qty, price, salt: salt(id) };
+        const onchain = await pub.readContract({ address: TUTUP, abi, functionName: "commitOf", args: [id, me] });
+        if ((await pub.readContract({ address: TUTUP, abi, functionName: "commitHash", args: [id, me, qty, price, r.salt] })) !== onchain) {
+          const [ev] = (await pub.getLogs({ address: TUTUP, event: abi.find((x) => x.name === "Committed"), args: { id, bidder: me }, fromBlock: 112356368n })).slice(-1);
+          const b = await openReceipt((await pub.getTransaction({ hash: ev.transactionHash })).input);
+          r = { qty: BigInt(b.qty), price: BigInt(b.price), salt: b.salt };
+        }
+        await allow(quote, cost(r.qty, r.price));
+        log.push({ id: i, revealed: await send(TUTUP, abi, "reveal", [id, r.qty, r.price, r.salt]) });
       } else if (now >= revealEnd) {
         log.push({ id: i, settled: await send(TUTUP, abi, "settle", [id]) });
       }
