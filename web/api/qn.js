@@ -32,6 +32,8 @@ export default async function handler(req, res) {
     res.setHeader("cache-control", ttl ? `public, s-maxage=${ttl}, stale-while-revalidate=${ttl}` : "no-store");
     return res.status(200).json({ result });
   } catch (e) {
+    // not configured yet is a normal state, not an error: the page just hides these panels
+    if (e.status === 503) return res.status(200).json({ configured: false, result: null });
     return res.status(e.status || 502).json({ error: e.message });
   }
 }

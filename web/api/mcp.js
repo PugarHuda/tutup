@@ -5,6 +5,7 @@ import { createPublicClient, http, fallback, parseAbi, formatUnits, parseUnits, 
 import { randomBytes } from "node:crypto";
 import TOKENS from "../tokens.json" with { type: "json" };
 import { quicknode } from "./qn.js";
+import { pythPrices } from "./pyth.js";
 
 // MCP_TEST_RPC / MCP_TEST_TUTUP only exist for the local fork test (scripts/mcp-fork-test.mjs); Vercel never sets them
 const TUTUP = process.env.MCP_TEST_TUTUP || "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
@@ -125,10 +126,11 @@ async function run(name, args = {}) {
     } catch {}
     const health = await quicknode("qn_getOracleHealth", [{ symbols: [t.sym] }]).catch(() => null);
     const qf = health?.feeds?.find((x) => x.symbol === t.sym);
+    const pyth = await pythPrices(t.sym).catch(() => null);
     const frozen = qf ? qf.status !== "UPDATING" : !f5 || f5.ageHours > 2 || paused === true;
     return { symbol: t.sym, name: t.name, token: t.addr, officialFeed24x5: f5, feed24x7: f7, lighter, erc8056Multiplier: mult ? Number(mult) / 1e18 : null,
       pendingCorporateAction: mult && next && next !== mult && Number(at) > Date.now() / 1000 ? { newMultiplier: Number(next) / 1e18, effectiveAt: new Date(Number(at) * 1000).toISOString() } : null,
-      oraclePaused: paused, officialPriceFrozen: frozen,
+      pyth: pyth?.configured ? { session: pyth.us, feed24x7: pyth.d247 } : "Pyth Pro key not configured", oraclePaused: paused, officialPriceFrozen: frozen,
       quicknodeOracleHealth: health ? { feedStatus: qf?.status, session: health.session, sequencer: health.sequencer?.operatorStatus?.status || health.sequencer?.status } : "Quicknode endpoint not configured", hint: frozen ? "The official feed is frozen: a sealed auction is the fair way to trade this now." : "The official feed is live." };
   }
   if (name === "weekend_prints") {

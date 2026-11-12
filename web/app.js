@@ -228,6 +228,18 @@ async function lighterSell(symb, qty) {
   } catch { return null; }
 }
 
+// Pyth (Equity.US session feed and Equity.Index 24/7 feed) through /api/pyth, which holds the Pyth Pro key.
+// Hidden entirely until a key is configured.
+async function pyth(symb) {
+  if (RPC !== DEFAULT.rpc) return null;
+  try {
+    const r = await fetch(`/api/pyth?symbol=${encodeURIComponent(symb)}`).then((x) => x.json());
+    if (!r.configured || r.error) return null;
+    const age = (p) => p && { ...p, ageH: (Date.now() / 1000 - p.publishTime) / 3600 };
+    return { us: age(r.us), d247: age(r.d247) };
+  } catch { return null; }
+}
+
 async function robinhood(symb) {
   try {
     const r = await fetch(`/api/rhj/prices/${encodeURIComponent(symb)}`);
@@ -256,17 +268,18 @@ function session(d = new Date()) {
 
 /// Everything known about one Stock Token right now, in USD.
 async function reference(t) {
-  const [f5, f7, lt, rh, st] = await Promise.all([
+  const [f5, f7, lt, rh, st, py] = await Promise.all([
     t.f5 ? readFeed(t.f5).catch(() => null) : null,
     t.f7 ? readFeed(t.f7).catch(() => null) : null,
-    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t),
+    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t), pyth(t.sym),
   ]);
   const closed = !f5 || f5.ageH > 2 || st?.paused || rh?.halt;
   const best = f7 && f7.ageH < 1 ? { price: f7.price, src: "Chainlink 24/7" }
     : f5 && !closed ? { price: f5.price, src: "Chainlink 24/5" }
+    : py?.d247 && py.d247.ageH < 0.25 ? { price: py.d247.price, src: "Pyth 24/7" }
     : lt?.last ? { price: lt.last, src: "Lighter last trade" }
     : f5 ? { price: f5.price, src: "Chainlink 24/5 (frozen)" } : null;
-  return { f5, f7, lt, rh, st, closed, best };
+  return { f5, f7, lt, rh, st, py, closed, best };
 }
 
 /// Quicknode Stock Token API through /api/qn (the endpoint key never reaches the browser). null if unavailable.
@@ -415,6 +428,8 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
   const rows = [];
   if (r.f7) rows.push(["Chainlink 24/7", usd(r.f7.price), `${r.f7.ageH.toFixed(1)}h old`]);
   if (r.f5) rows.push(["Chainlink 24/5 (official)", usd(r.f5.price), r.f5.ageH > 2 ? `frozen ${r.f5.ageH.toFixed(1)}h` : "live"]);
+  if (r.py?.d247) rows.push(["Pyth 24/7 (Equity.Index)", usd(r.py.d247.price), `±${usd(r.py.d247.conf)} · ${(r.py.d247.ageH * 60).toFixed(0)} min old`]);
+  if (r.py?.us) rows.push(["Pyth US session (Equity.US)", usd(r.py.us.price), `${r.py.us.ageH.toFixed(1)}h old`]);
   if (r.lt) rows.push([`Lighter ${t.sym}/USDG`, usd(r.lt.last), `bid ${usd(r.lt.bid)} · ask ${usd(r.lt.ask)}`]);
   if (r.rh) rows.push(["Robinhood quote", `${usd(r.rh.bid)} / ${usd(r.rh.ask)}`, r.rh.halt ? "trading halt" : "no halt"]);
   if (r.sell) rows.push(["sell this lot on Lighter now", r.sell.avg ? usd(r.sell.avg) + " avg" : "no bids",
