@@ -51,8 +51,11 @@ export default async function handler(req, res) {
     try {
       const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       if (r.status === 429 || r.status >= 500) continue;
+      const text = await r.text();
+      // Quicknode's Discover plan answers wide eth_getLogs with 200 + code -32615 ("limited to a 5 range"): next upstream
+      if (text.includes("-32615") && url !== UPSTREAMS.at(-1)) continue;
       res.setHeader("content-type", "application/json");
-      return res.status(r.status).send(await r.text());
+      return res.status(r.status).send(text);
     } catch {
       // try the next upstream
     }
