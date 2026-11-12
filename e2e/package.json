@@ -1,0 +1,7 @@
+{
+  "name": "tutup-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "playwright test" },
+  "devDependencies": { "@playwright/test": "1.65.0", "@axe-core/playwright": "4.10.1" }
+}
