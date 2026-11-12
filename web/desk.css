@@ -37,7 +37,7 @@ nav a.on { background: var(--side-2); color: #fff; }
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
 .eyebrow { color: var(--faint); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 4px; }
 h1 { font-family: "Pixelify Sans", var(--mono); font-size: clamp(26px, 3.4vw, 36px); line-height: 1.05; margin: 0; letter-spacing: .5px; }
-h3 { font-size: 13px; margin: 0 0 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h3, h2.sub { font-size: 13px; font-family: var(--mono); line-height: 1.55; font-weight: 700; margin: 0 0 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }

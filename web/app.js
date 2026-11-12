@@ -162,7 +162,7 @@ function pickWallet() {
   return new Promise((resolve, reject) => {
     const box = document.createElement("div");
     box.className = "picker";
-    box.innerHTML = `<div class="card pad"><h3>Choose a wallet</h3>${wallets.map((w, i) =>
+    box.innerHTML = `<div class="card pad"><h2 class="sub">Choose a wallet</h2>${wallets.map((w, i) =>
       `<button class="btn ghost" data-i="${i}">${/^data:image\//.test(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="" width="20" height="20">` : ""}${esc(w.info.name)}</button>`).join("")}
       <button class="btn ghost" data-x="1">Cancel</button></div>`;
     box.onclick = (e) => {
@@ -444,7 +444,7 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
   const ref = r.best?.price;
   const reserveUsd = quoteUsdPrice && reserveUnits != null ? reserveUnits * quoteUsdPrice : null;
   const clearUsd = quoteUsdPrice && clearingUnits != null ? clearingUnits * quoteUsdPrice : null;
-  return `<h3 style="margin-top:6px">Reference price</h3>
+  return `<h2 class="sub" style="margin-top:6px">Reference price</h2>
     <div class="kv"><span>best reference</span><b>${usd(ref)} <span class="muted">${esc(r.best?.src || "none")}</span></b></div>
     ${reserveUsd != null ? `<div class="kv"><span>reserve in USD</span><b>${usd(reserveUsd)} <span class="muted">${pct(reserveUsd, ref)}</span></b></div>` : ""}
     ${clearUsd != null ? `<div class="kv"><span>clearing in USD</span><b>${usd(clearUsd)} <span class="muted">${pct(clearUsd, ref)} vs reference now</span></b></div>` : ""}
@@ -466,28 +466,28 @@ async function vAuction(id) {
 
   let action = "";
   if (ph === "commit" && isSeller) {
-    action = `<h3>Your auction</h3><p class="note">Sellers can't bid in their own auction, because a seller bid would only move its own clearing price.</p>
+    action = `<h2 class="sub">Your auction</h2><p class="note">Sellers can't bid in their own auction, because a seller bid would only move its own clearing price.</p>
       ${a.commits === 0 ? `<div class="form" style="margin-top:10px"><p class="note">Nobody has bid yet, so you can still take the lot back. The listing fee stays burned.</p><button class="btn ghost" data-act="cancel">Cancel and return lot</button></div>` : ""}`;
   } else if (ph === "commit" && !(saved && saved.committed)) {
-    action = `<h3>Seal a bid</h3><div class="form">
+    action = `<h2 class="sub">Seal a bid</h2><div class="form">
       <div class="two"><label>quantity (${esc(sym(a.lot))})<input id="qty" placeholder="0.5" inputmode="decimal"></label>
       <label>your price (${esc(sym(a.quote))} each)<input id="price" placeholder="${fmt(a.reserve, a.qd)}" inputmode="decimal"></label></div>
       <p class="note" id="bidcost">Posts a ${bondTxt} bond. At reveal you'll escrow quantity × price.</p>
       <p class="note">We save your quantity, price and salt in this browser and download a receipt file. Without them you can't reveal, and the bond burns.</p>
       <button class="btn" data-act="commit">Seal bid · ${bondTxt} bond</button></div>`;
   } else if (ph === "commit") {
-    action = `<h3>Your bid</h3><div class="callout">Sealed: ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Reveal opens in ${countdown(a.commitEnd, now)}.</div>
+    action = `<h2 class="sub">Your bid</h2><div class="callout">Sealed: ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Reveal opens in ${countdown(a.commitEnd, now)}.</div>
       <div class="two" style="margin-top:10px"><button class="btn ghost" data-act="receipt">Download receipt again</button><button class="btn ghost" data-act="ics">Add reveal to calendar</button></div>`;
   } else if (ph === "reveal" && saved && !saved.revealed) {
-    action = `<h3>Reveal</h3><div class="form"><div class="callout">You sealed ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Revealing escrows ${fmt(cost(BigInt(saved.qty), BigInt(saved.price)), a.qd)} ${esc(sym(a.quote))} and returns your ${bondTxt}.</div>
+    action = `<h2 class="sub">Reveal</h2><div class="form"><div class="callout">You sealed ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Revealing escrows ${fmt(cost(BigInt(saved.qty), BigInt(saved.price)), a.qd)} ${esc(sym(a.quote))} and returns your ${bondTxt}.</div>
       <button class="btn" data-act="reveal">Reveal my bid</button></div>`;
   } else if (ph === "reveal") {
-    action = `<h3>Reveal phase</h3><p class="note">${saved ? "Your bid is revealed." : "Bidding is closed and bidders are opening their bids."} Settlement opens in ${countdown(a.revealEnd, now)}.</p>
+    action = `<h2 class="sub">Reveal phase</h2><p class="note">${saved ? "Your bid is revealed." : "Bidding is closed and bidders are opening their bids."} Settlement opens in ${countdown(a.revealEnd, now)}.</p>
       ${account && !saved ? `<label style="margin-top:12px">bid on another device? import its receipt<input type="file" id="rcpt" accept="application/json"></label>` : ""}`;
   } else if (ph === "settle") {
-    action = `<h3>Ready to settle</h3><div class="form"><p class="note">Anyone can settle. The highest bids fill first and every winner pays the lowest winning price. If a payout can't be delivered to someone (for example a frozen USDG account), it's held for them to claim, so nobody else is blocked.</p><button class="btn" data-act="settle">Settle auction</button></div>`;
+    action = `<h2 class="sub">Ready to settle</h2><div class="form"><p class="note">Anyone can settle. The highest bids fill first and every winner pays the lowest winning price. If a payout can't be delivered to someone (for example a frozen USDG account), it's held for them to claim, so nobody else is blocked.</p><button class="btn" data-act="settle">Settle auction</button></div>`;
   } else if (ph === "cancelled") {
-    action = `<h3>Cancelled</h3><p class="note">The seller took the lot back before anyone bid.</p>`;
+    action = `<h2 class="sub">Cancelled</h2><p class="note">The seller took the lot back before anyone bid.</p>`;
   }
 
   const shareText = encodeURIComponent(`Sealed-bid auction #${id} on Tutup: ${fmt(a.lotAmount, 18)} ${sym(a.lot)}, paid in ${sym(a.quote)}. Bid while the market is closed, every winner pays one price. $WIF`);
@@ -508,10 +508,10 @@ async function vAuction(id) {
         <div class="kv"><span>reveals close</span><b>${new Date(Number(a.revealEnd) * 1000).toLocaleString()}</b></div>
         <div id="result"></div>
       </div>
-      <div style="display:grid;gap:16px"><div class="card pad" id="act">${action || `<h3>Settled</h3><p class="note">This auction is closed.</p>`}</div>
-      <div class="card pad" id="ref"><h3>Reference price</h3><p class="note">reading Chainlink, Lighter and Robinhood…</p></div></div>
+      <div style="display:grid;gap:16px"><div class="card pad" id="act">${action || `<h2 class="sub">Settled</h2><p class="note">This auction is closed.</p>`}</div>
+      <div class="card pad" id="ref"><h2 class="sub">Reference price</h2><p class="note">reading Chainlink, Lighter and Robinhood…</p></div></div>
     </div>
-    <h3 style="margin-top:22px">Bid book</h3>
+    <h2 class="sub" style="margin-top:22px">Bid book</h2>
     <div class="card tablescroll" id="book"><div class="empty">${ph === "commit" ? "Bids are sealed. Nothing is visible until commits close." : "loading…"}</div></div>`;
 
   let settledArgs;
@@ -553,13 +553,13 @@ async function vAuction(id) {
       qn("qn_getCorporateActions", [{ symbols: [t.sym] }]).then((c) => {
         const acts = (c?.actions || []).slice(-3).reverse();
         if (!c) return;
-        $("ref").insertAdjacentHTML("beforeend", `<h3 style="margin-top:14px">Corporate actions <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode</span></h3>${acts.length
+        $("ref").insertAdjacentHTML("beforeend", `<h2 class="sub" style="margin-top:14px">Corporate actions <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode</span></h2>${acts.length
           ? acts.map((x) => `<div class="kv"><span>${esc(x.type.toLowerCase().replace(/_/g, " "))} · ${esc(x.status.toLowerCase())}</span><b>${esc((x.effectiveAtIso || "").slice(0, 10))} · ×${Number(x.ratio).toFixed(5)}</b></div>`).join("")
           : `<p class="note">No splits or dividends on record.</p>`}`);
       });
-    }).catch(() => ($("ref").innerHTML = `<h3>Reference price</h3><p class="note">Reference sources unavailable right now.</p>`));
+    }).catch(() => ($("ref").innerHTML = `<h2 class="sub">Reference price</h2><p class="note">Reference sources unavailable right now.</p>`));
   } else {
-    quoteUsd(WIF).then((w) => ($("ref").innerHTML = `<h3>Reference price</h3><div class="kv"><span>$WIF (worldisflat.fun)</span><b>${usd(w)}</b></div><p class="note" style="margin-top:8px">WIF pools are thin, so a sealed auction is a better way to move a block of WIF than a swap.</p>`));
+    quoteUsd(WIF).then((w) => ($("ref").innerHTML = `<h2 class="sub">Reference price</h2><div class="kv"><span>$WIF (worldisflat.fun)</span><b>${usd(w)}</b></div><p class="note" style="margin-top:8px">WIF pools are thin, so a sealed auction is a better way to move a block of WIF than a swap.</p>`));
   }
 
   const qtyIn = $("qty"), priceIn = $("price");
@@ -637,7 +637,7 @@ async function vCreate() {
       <label>reveal window (minutes)<input name="revealMin" type="number" min="5" value="30"></label></div>
       <p class="note" id="refNote"></p>
       <button class="btn" type="submit">List auction</button></form></div>
-    <div class="card pad"><h3>What happens</h3>
+    <div class="card pad"><h2 class="sub">What happens</h2>
       <div class="kv"><span>listing fee</span><b>100 $WIF, burned</b></div>
       <div class="kv"><span>your lot</span><b>escrowed until settle</b></div>
       <div class="kv"><span>unsold amount</span><b>returned to you</b></div>
@@ -711,7 +711,7 @@ async function vMine() {
   await tokensReady;
   view.innerHTML = `<div class="head"><div><p class="eyebrow">balances · bids · payouts held for you</p><h1>My account</h1></div></div>
     <section class="stats" id="bals"></section><div id="owedBox"></div><div id="stocks"></div>
-    <h3 style="margin-top:6px">My sealed bids</h3><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
+    <h2 class="sub" style="margin-top:6px">My sealed bids</h2><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
   if (!account) { $("mine").innerHTML = `<div class="empty">Connect your wallet to see your account.</div>`; return; }
   const ethBal = await pub.getBalance({ address: account });
   const bals = await Promise.all(BASE_TOKENS.map((t) => balanceOf(t.addr, account).then((b) => [t, b]).catch(() => [t, 0n])));
@@ -721,7 +721,7 @@ async function vMine() {
   qn("qn_getStockTokenBalances", [account]).then((r) => {
     if (!r) return;
     const h = (r.holdings || []).filter((x) => x.balanceRaw !== "0");
-    $("stocks").innerHTML = `<h3>My Stock Tokens <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode Stock Token API, in shares with multipliers applied</span></h3>
+    $("stocks").innerHTML = `<h2 class="sub">My Stock Tokens <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode Stock Token API, in shares with multipliers applied</span></h2>
       <div class="card tablescroll" style="margin-bottom:16px">${h.length ? `<table><thead><tr><th>token</th><th>tokens</th><th>shares</th><th>value</th><th></th></tr></thead><tbody>
       ${h.map((x) => `<tr><td>${tok(x.token)}</td><td>${Number(x.balanceRaw) / 1e18}</td><td>${Number(x.balanceUiDecimal).toLocaleString(undefined, { maximumFractionDigits: 6 })}${x.pending ? ` <span class="badge b-reveal">corp action pending</span>` : ""}</td>
         <td>${x.valueUsd ? usd(Number(x.valueUsd)) : "–"}${x.priceStale ? ` <span class="badge b-closed">price stale</span>` : ""}</td><td><a class="btn ghost" href="#create" data-list="${x.token}">List this</a></td></tr>`).join("")}</tbody></table>`
@@ -733,7 +733,7 @@ async function vMine() {
     const owedLogs = await events("Owed", { to: account });
     const tokens = [...new Set(owedLogs.map((l) => l.args.token))];
     const owed = (await Promise.all(tokens.map(async (tk) => [tk, await read("owed", [tk, account])]))).filter(([, v]) => v > 0n);
-    $("owedBox").innerHTML = owed.length ? `<div class="card pad" style="margin-bottom:16px"><h3>Held for you</h3>${await Promise.all(owed.map(async ([tk, v]) =>
+    $("owedBox").innerHTML = owed.length ? `<div class="card pad" style="margin-bottom:16px"><h2 class="sub">Held for you</h2>${await Promise.all(owed.map(async ([tk, v]) =>
       `<div class="kv"><span>${fmt(v, await decimals(tk))} ${esc(sym(tk))}</span><b><button class="btn" data-claim="${tk}">Claim</button></b></div>`)).then((x) => x.join(""))}</div>` : "";
     $("owedBox").querySelectorAll("[data-claim]").forEach((b) => (b.onclick = async () => {
       b.disabled = true;
@@ -790,7 +790,7 @@ async function vPrints() {
   view.innerHTML = `<div class="head"><div><p class="eyebrow">clearing prices vs chainlink at settle</p><h1>Weekend prints</h1></div></div>
     <div class="callout" style="margin-bottom:14px">Every sale writes <code>lastPrint(lot, quote)</code> on chain: the clearing price, the amount sold and when. Any contract can read it, so the price a sealed auction discovered while the market was shut becomes something a lending market or vault can use.</div>
     <div class="card tablescroll" id="prints"><div class="empty">loading…</div></div>
-    <h3 style="margin-top:22px">Chainlink-compatible feeds</h3>
+    <h2 class="sub" style="margin-top:22px">Chainlink-compatible feeds</h2>
     <div class="card tablescroll" id="pfeeds"><div class="empty">reading…</div></div>`;
   Promise.all(PRINT_FEEDS.map(async (f) => {
     const [round, answer, , at] = await pub.readContract({ address: f.addr, abi: feedAbi, functionName: "latestRoundData" }).catch(() => [null, null, null, null]);
@@ -839,7 +839,7 @@ async function vGetWif() {
       <button class="btn ghost" type="button" id="quoteBtn">Get quote</button>
       <div id="quoteOut"></div>
       <button class="btn" type="submit" id="goBtn" disabled>Swap to $WIF</button></form></div>
-    <div class="card pad"><h3>How it works</h3><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready.</p>
+    <div class="card pad"><h2 class="sub">How it works</h2><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready.</p>
       <div class="kv"><span>delivered to</span><b>${account ? short(account) : "your connected wallet"}</b></div>
       <div class="kv"><span>status API</span><b>/intents/status/v3</b></div></div></div>`;
   let quote, quoted;
@@ -922,28 +922,28 @@ async function vGetWif() {
 function vDocs() {
   view.innerHTML = `<div class="head"><div><p class="eyebrow">how tutup works</p><h1>Docs</h1></div></div>
     <div class="g2"><div class="card pad docs">
-      <h3>The problem</h3>
+      <h2 class="sub">The problem</h2>
       <p>Stock Tokens on Robinhood Chain are ERC-20s that trade 24/7. Their official Chainlink feeds update 24/5, and Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. On weekends and during corporate actions (<code>oraclePaused()</code>) nobody can arbitrage a token back to its share. Quotes go thin, and on a first-come-first-served sequencer the fastest bot sets the price.</p>
-      <h3>The mechanism</h3>
+      <h2 class="sub">The mechanism</h2>
       <p><b>Commit.</b> Post <code>keccak256(abi.encode(id, bidder, qty, price, salt))</code> and the auction's $WIF bond. The page also downloads a receipt file, so you can reveal from any device.<br><b>Reveal.</b> Open the bid and escrow <code>qty × price</code>, and your bond comes back. If you never reveal, the bond is burned.<br><b>Settle.</b> Anyone can call it. Bids sort by price and ties break on <code>keccak256(id, bidder)</code>. The highest bids fill, and every winner pays the marginal (lowest winning) price. Losers are refunded and unsold lot returns to the seller.</p>
-      <h3>Safety</h3>
+      <h2 class="sub">Safety</h2>
       <p>Every entry point shares one reentrancy lock, so no token callback can re-enter while escrow is pooled. Payouts that can't be delivered, for example to a frozen USDG account, are held in <code>owed</code> for <code>claim()</code>, so one bad recipient can't lock an auction. If demand doesn't reach the seller's <code>minSold</code>, nothing sells and every escrow comes back. Fee-on-transfer tokens are refused. Sellers can't bid in their own auction. Each seller sets the bond, at least the floor, so griefing a book of 64 bids costs whatever the seller decides. A seller can cancel only while nobody has bid.</p>
-      <h3>Prints</h3>
+      <h2 class="sub">Prints</h2>
       <p>Every sale writes <code>lastPrint(lot, quote)</code>, the weekend price that sealed bids discovered, for any contract to read.</p>
-      <h3>$WIF</h3>
+      <h2 class="sub">$WIF</h2>
       <p>Each listing burns 100 $WIF through WIF's own <code>burn()</code>, and unrevealed bonds burn too. The bond is what makes a sealed bid credible: without it, a fake bid costs nothing. New bidders can get $WIF from any chain through Relay.</p>
-      <h3>Limits, honestly</h3>
+      <h2 class="sub">Limits, honestly</h2>
       <p>An auction takes at most 64 bids, because they are sorted on chain. Bid sizes become public at reveal, but only after commits have closed. Robinhood Chain has no Chainlink sequencer-uptime feed, so prices are judged by staleness instead.</p>
-      <h3>For AI agents (MCP)</h3>
+      <h2 class="sub">For AI agents (MCP)</h2>
       <p>Tutup is also an MCP server: <code>claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp</code>. Agents can call <code>list_auctions</code>, <code>get_auction</code>, <code>market_status</code> and <code>weekend_prints</code>, then <code>prepare_bid</code>, <code>prepare_reveal</code> and <code>prepare_settle</code>. Those return unsigned calls for the agent's own wallet, and the server never holds a key. An agent can watch the 24/5 feeds freeze and bid while people sleep.</p>
-      <h3>Quicknode</h3>
+      <h2 class="sub">Quicknode</h2>
       <p>Reads go through our Quicknode Robinhood Chain endpoint first. Its Stock Token API add-on supplies the US session and Robinhood mint window (<code>qn_getOracleHealth</code>), wallet holdings in shares (<code>qn_getStockTokenBalances</code>), split and dividend history (<code>qn_getCorporateActions</code>) and how final a settlement is on Ethereum (<code>qn_getTransactionFinality</code>). The MCP server exposes them to agents too. The endpoint key stays server-side.</p>
-      <h3>Composability</h3>
+      <h2 class="sub">Composability</h2>
       <p><code>TutupFeed</code> serves a pair's <code>lastPrint</code> behind Chainlink's <code>AggregatorV3Interface</code>, so any protocol that already reads a Chainlink feed can use the weekend price that sealed bids discovered.</p>
-      <h3>Prior art</h3>
+      <h2 class="sub">Prior art</h2>
       <p>The uniform clearing price follows batch auctions like Gnosis EasyAuction and CoW. The commit–reveal bond is the classic sealed-bid answer when a chain has no private compute.</p>
     </div>
-    <div class="card pad"><h3>Contract</h3>
+    <div class="card pad"><h2 class="sub">Contract</h2>
       <div class="kv"><span>Tutup</span><b>${DEPLOYED ? `<a href="${EXPLORER}/address/${TUTUP}" target="_blank" rel="noopener">${short(TUTUP)}</a>` : "deploying"}</b></div>
       ${PAST.map(([v, addr]) => `<div class="kv"><span>${v} (auction #0 settled)</span><b><a href="${EXPLORER}/address/${addr}" target="_blank" rel="noopener">${short(addr)}</a></b></div>`).join("")}
       <div class="kv"><span>verified</span><b><a href="https://repo.sourcify.dev/4663/${TUTUP}" target="_blank" rel="noopener">Sourcify</a></b></div>
