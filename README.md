@@ -98,6 +98,16 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 - Write tools: `prepare_bid`, `prepare_reveal` and `prepare_settle`. They return **unsigned** calls for the agent's own wallet, and the server never holds a key.
 - `scripts/mcp-fork-test.mjs` runs an agent through a full bid on an anvil fork of mainnet.
 
+## Keeper agent
+
+[`web/api/keeper.js`](web/api/keeper.js) runs on Vercel Cron at 12:15 and 20:00 UTC, using its own wallet [`0xBCbC…D024`](https://robinhoodchain.blockscout.com/address/0xBCbC638826C37b1B9460ECf722C86DFb1a82D024). Each run it:
+
+1. **Settles** every auction whose reveal window has closed. `settle` is permissionless.
+2. **Bids** by a public rule (the whole lot at reserve + 5%), but only when the wallet holds the bond and the escrow on top of escrow it has already promised. It takes the newest lot first.
+3. **Reveals** using `salt = keccak256(key, tutup, id)`. The salt is derived, never stored, so the agent can't lose one and get its bond burned.
+
+The desk labels its bids "Tutup agent". They are the house's own bids, not outside demand. `scripts/keeper-fork-test.mjs` runs the full commit, no-double-bid, reveal and settle cycle on an anvil fork.
+
 ## Integrations
 - **Uniswap v3 on Robinhood Chain:** each auction quotes what selling the same lot into the pool returns now, through QuoterV2 `0x33e8…a9e7`. The NVDA lot was bought through SwapRouter02 `0xcaf6…5cb2`.
 - **ERC-8004:** the MCP agent identity above.

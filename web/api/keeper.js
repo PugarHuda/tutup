@@ -1,39 +1,98 @@
-// Keeper: settles every auction whose reveal window has closed. settle() is permissionless, so this only saves
-// people a click; it runs from Vercel Cron (vercel.json) with its own throwaway wallet (KEEPER_KEY, a few cents of
-// gas). Vercel signs cron calls with CRON_SECRET, so nobody else can make the keeper spend gas.
-import { createPublicClient, createWalletClient, http, fallback, parseAbi } from "viem";
+// Tutup's keeper agent, run by Vercel Cron (vercel.json). With its own small wallet (KEEPER_KEY) it:
+//   1. bids in open auctions it can afford, by a public rule: the whole lot at the reserve + 5%;
+//   2. reveals its own bids once reveals open. The salt is derived from its key and the auction id
+//      (keccak256(key, tutup, id)), so it is never stored anywhere and can never be lost: no forgotten reveal;
+//   3. settles every auction whose reveal window has closed (settle is permissionless).
+// It's labelled as Tutup's own agent in the UI, not as outside demand. CRON_SECRET-gated; KEEPER_TEST_* only
+// exist for the anvil-fork test (scripts/keeper-fork-test.mjs).
+import { createPublicClient, createWalletClient, http, fallback, parseAbi, keccak256, encodeAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-const TUTUP = "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
+const TUTUP = process.env.KEEPER_TEST_TUTUP || "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
+const WIF = "0x5173b8eA6923c2d40267890D45C46a3480954773";
 const chain = { id: 4663, name: "Robinhood Chain", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.mainnet.chain.robinhood.com"] } } };
 const abi = parseAbi([
   "function auctionCount() view returns (uint256)",
   "function auctions(uint256) view returns (address seller, address lot, address quote, address feed, uint128 lotAmount, uint128 reserve, uint128 bond, uint128 minSold, uint64 commitEnd, uint64 revealEnd, uint32 commits, uint32 reveals, bool settled)",
+  "function commitOf(uint256, address) view returns (bytes32)",
+  "function commitHash(uint256 id, address bidder, uint128 qty, uint128 price, bytes32 salt) pure returns (bytes32)",
+  "function commit(uint256 id, bytes32 hash)",
+  "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
 ]);
+const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address, address) view returns (uint256)", "function approve(address, uint256) returns (bool)"]);
+const cost = (q, p) => (q * p + 10n ** 18n - 1n) / 10n ** 18n;
+
+/// The agent's public bidding rule: the whole lot, 5% over the reserve.
+export const bidFor = (a) => ({ qty: a.lotAmount, price: (a.reserve * 105n) / 100n });
+
+export async function runKeeper() {
+  const transport = process.env.KEEPER_TEST_RPC ? http(process.env.KEEPER_TEST_RPC)
+    : fallback([...(process.env.QUICKNODE_RPC ? [http(process.env.QUICKNODE_RPC)] : []), http("https://rpc.mainnet.chain.robinhood.com"), ...(process.env.GETBLOCK_RPC ? [http(process.env.GETBLOCK_RPC)] : [])]);
+  const pub = createPublicClient({ chain, transport });
+  const account = privateKeyToAccount(process.env.KEEPER_KEY);
+  const wallet = createWalletClient({ chain, transport, account });
+  const me = account.address;
+  const salt = (id) => keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "address" }, { type: "uint256" }], [process.env.KEEPER_KEY, TUTUP, id]));
+  const send = async (address, a, functionName, args) => {
+    const hash = await wallet.writeContract({ address, abi: a, functionName, args });
+    const r = await pub.waitForTransactionReceipt({ hash });
+    if (r.status !== "success") throw new Error(`${functionName} reverted`);
+    return hash;
+  };
+  const allow = async (token, amount) => {
+    if ((await pub.readContract({ address: token, abi: erc20, functionName: "allowance", args: [me, TUTUP] })) < amount) {
+      await send(token, erc20, "approve", [TUTUP, amount]);
+    }
+  };
+
+  const now = (await pub.getBlock()).timestamp;
+  const n = Number(await pub.readContract({ address: TUTUP, abi, functionName: "auctionCount" }));
+  const log = [];
+  const ZERO = "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const all = await Promise.all([...Array(n).keys()].map(async (i) => {
+    const id = BigInt(i);
+    const [seller, , quote, , lotAmount, reserve, bond, , commitEnd, revealEnd, , , settled] = await pub.readContract({ address: TUTUP, abi, functionName: "auctions", args: [id] });
+    const sealed = !settled && (await pub.readContract({ address: TUTUP, abi, functionName: "commitOf", args: [id, me] })) !== ZERO;
+    return { i, id, seller, quote, bond, commitEnd, revealEnd, settled, sealed, ...bidFor({ lotAmount, reserve }) };
+  }));
+  // escrow already promised to sealed bids that still have to be revealed, per quote token
+  const promised = {};
+  for (const a of all) if (a.sealed && now < a.revealEnd) promised[a.quote.toLowerCase()] = (promised[a.quote.toLowerCase()] || 0n) + cost(a.qty, a.price);
+  // newest first: when the wallet can only fund one bid, it goes to the latest lot
+  for (const { i, id, seller, quote, bond, commitEnd, revealEnd, settled, sealed, qty, price } of all.reverse()) {
+    if (settled) continue;
+    try {
+      if (now < commitEnd && !sealed && seller.toLowerCase() !== me.toLowerCase()) {
+        // bid only if the bond and the later escrow (on top of escrow already promised) are in the wallet
+        const [wif, q] = await Promise.all([
+          pub.readContract({ address: WIF, abi: erc20, functionName: "balanceOf", args: [me] }),
+          pub.readContract({ address: quote, abi: erc20, functionName: "balanceOf", args: [me] }),
+        ]);
+        const k = quote.toLowerCase();
+        const need = cost(qty, price) + (promised[k] || 0n);
+        if (wif < bond || q < need + (k === WIF.toLowerCase() ? bond : 0n)) { log.push({ id: i, skip: "can't afford bond and escrow" }); continue; }
+        const hash = await pub.readContract({ address: TUTUP, abi, functionName: "commitHash", args: [id, me, qty, price, salt(id)] });
+        await allow(WIF, bond);
+        log.push({ id: i, committed: await send(TUTUP, abi, "commit", [id, hash]) });
+        promised[k] = need;
+      } else if (now >= commitEnd && now < revealEnd && sealed) {
+        await allow(quote, cost(qty, price));
+        log.push({ id: i, revealed: await send(TUTUP, abi, "reveal", [id, qty, price, salt(id)]) });
+      } else if (now >= revealEnd) {
+        log.push({ id: i, settled: await send(TUTUP, abi, "settle", [id]) });
+      }
+    } catch (e) {
+      log.push({ id: i, error: e.shortMessage || e.message });
+    }
+  }
+  return { agent: me, checked: n, actions: log };
+}
 
 export default async function handler(req, res) {
   if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: "cron only" });
   }
   if (!process.env.KEEPER_KEY) return res.status(200).json({ configured: false });
-  const transport = fallback([...(process.env.QUICKNODE_RPC ? [http(process.env.QUICKNODE_RPC)] : []), http("https://rpc.mainnet.chain.robinhood.com"), ...(process.env.GETBLOCK_RPC ? [http(process.env.GETBLOCK_RPC)] : [])]);
-  const pub = createPublicClient({ chain, transport });
-  const wallet = createWalletClient({ chain, transport, account: privateKeyToAccount(process.env.KEEPER_KEY) });
-  const now = (await pub.getBlock()).timestamp;
-  const n = Number(await pub.readContract({ address: TUTUP, abi, functionName: "auctionCount" }));
-  const done = [];
-  for (let id = 0; id < n; id++) {
-    const a = await pub.readContract({ address: TUTUP, abi, functionName: "auctions", args: [BigInt(id)] });
-    const [revealEnd, settled] = [a[9], a[12]];
-    if (settled || now < revealEnd) continue;
-    try {
-      const hash = await wallet.writeContract({ address: TUTUP, abi, functionName: "settle", args: [BigInt(id)] });
-      const r = await pub.waitForTransactionReceipt({ hash });
-      done.push({ id, hash, status: r.status });
-    } catch (e) {
-      done.push({ id, error: e.shortMessage || e.message });
-    }
-  }
-  return res.status(200).json({ checked: n, settled: done });
+  return res.status(200).json(await runKeeper());
 }

@@ -1,4 +1,4 @@
 {
   "rewrites": [{ "source": "/api/rhj/:path*", "destination": "/api/rhj?path=:path*" }],
-  "crons": [{ "path": "/api/keeper", "schedule": "15 12 * * *" }]
+  "crons": [{ "path": "/api/keeper", "schedule": "15 12 * * *" }, { "path": "/api/keeper", "schedule": "0 20 * * *" }]
 }
