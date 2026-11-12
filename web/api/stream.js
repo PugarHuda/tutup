@@ -19,6 +19,7 @@ const EVENTS = parseAbi([
 const NAME = Object.fromEntries(EVENTS.map((e) => [toEventSelector(e), e.name]));
 const WAKE = new Set(["Created"]); // events the keeper acts on right away
 const MAX_AGE_S = 300;
+const MAX_BODY = 1 << 20, MAX_INFLATED = 4 << 20; // a filtered Tutup delivery is a few kB
 
 /// Is this delivery from our stream? Exported for the check in scripts/stream-test.mjs.
 export function verify(secret, nonce, timestamp, payload, signature) {
@@ -37,16 +38,23 @@ export function tutupEvents(body) {
 
 const readRaw = (req) => new Promise((ok, fail) => {
   const parts = [];
-  req.on("data", (c) => parts.push(c)).on("end", () => ok(Buffer.concat(parts))).on("error", fail);
+  let n = 0;
+  req.on("data", (c) => { n += c.length; if (n > MAX_BODY) { req.destroy(); fail(new Error("too large")); } else parts.push(c); })
+    .on("end", () => ok(Buffer.concat(parts))).on("error", fail);
 });
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   if (!process.env.QN_STREAM_TOKEN) return res.status(200).json({ configured: false });
-  let raw = await readRaw(req);
-  if (/gzip/i.test(req.headers["content-encoding"] || "")) raw = gunzipSync(raw);
-  const payload = raw.toString("utf8");
   const nonce = req.headers["x-qn-nonce"], ts = req.headers["x-qn-timestamp"], sig = req.headers["x-qn-signature"];
+  // cheap checks before reading or inflating anything: no signature headers, no work
+  if (!nonce || !ts || !/^[0-9a-f]{64}$/i.test(sig || "")) return res.status(401).json({ error: "unsigned" });
+  let raw;
+  try {
+    raw = await readRaw(req);
+    if (/gzip/i.test(req.headers["content-encoding"] || "")) raw = gunzipSync(raw, { maxOutputLength: MAX_INFLATED });
+  } catch { return res.status(413).json({ error: "payload too large" }); }
+  const payload = raw.toString("utf8");
   if (!verify(process.env.QN_STREAM_TOKEN, nonce, ts, payload, sig)) return res.status(401).json({ error: "bad signature" });
   const sec = Number(ts) > 1e12 ? Number(ts) / 1000 : Number(ts); // seconds or milliseconds
   if (!(Math.abs(Date.now() / 1000 - sec) <= MAX_AGE_S)) return res.status(401).json({ error: "stale delivery" });
