@@ -995,7 +995,8 @@ async function vGetWif() {
     $("quoteOut").innerHTML = `<p class="note">quoting…</p>`;
     const r = await fetch("https://api.relay.link/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       user: account, recipient: account, originChainId: Number(f.get("origin")), destinationChainId: 4663,
-      originCurrency: NONE, destinationCurrency: WIF, amount, tradeType: "EXACT_INPUT" }) }).then((x) => x.json());
+      originCurrency: NONE, destinationCurrency: WIF, amount, tradeType: "EXACT_INPUT" }) })
+      .then((x) => x.json().catch(() => ({ message: `Relay is unavailable right now (HTTP ${x.status})` })));
     if (!r.steps) throw new Error(r.message || "no route");
     quote = r;
     quoted = { origin: Number(f.get("origin")), amount: BigInt(amount) };
