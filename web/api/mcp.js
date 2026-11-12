@@ -4,6 +4,7 @@
 import { createPublicClient, http, fallback, parseAbi, formatUnits, parseUnits, keccak256, encodeAbiParameters, encodeFunctionData, toHex, isAddress, getAddress } from "viem";
 import { randomBytes } from "node:crypto";
 import TOKENS from "../tokens.json" with { type: "json" };
+import { quicknode } from "./qn.js";
 
 // MCP_TEST_RPC / MCP_TEST_TUTUP only exist for the local fork test (scripts/mcp-fork-test.mjs); Vercel never sets them
 const TUTUP = process.env.MCP_TEST_TUTUP || "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
@@ -19,7 +20,7 @@ const ALL = [...BASE, ...TOKENS];
 const chain = { id: 4663, name: "Robinhood Chain", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: ["https://rpc.mainnet.chain.robinhood.com"] } } };
 const pub = createPublicClient({
   chain,
-  transport: process.env.MCP_TEST_RPC ? http(process.env.MCP_TEST_RPC) : fallback([http("https://rpc.mainnet.chain.robinhood.com", { batch: true }), ...(process.env.GETBLOCK_RPC ? [http(process.env.GETBLOCK_RPC, { batch: true })] : [])]),
+  transport: process.env.MCP_TEST_RPC ? http(process.env.MCP_TEST_RPC) : fallback([...(process.env.QUICKNODE_RPC ? [http(process.env.QUICKNODE_RPC, { batch: true })] : []), http("https://rpc.mainnet.chain.robinhood.com", { batch: true }), ...(process.env.GETBLOCK_RPC ? [http(process.env.GETBLOCK_RPC, { batch: true })] : [])]),
 });
 
 const abi = parseAbi([
@@ -69,8 +70,11 @@ async function feed(addr) {
 const TOOLS = [
   { name: "list_auctions", description: "List Tutup sealed-bid auctions on Robinhood Chain, newest first, with phase and time left.", inputSchema: { type: "object", properties: { limit: { type: "number", description: "max results, default 20" } } } },
   { name: "get_auction", description: "One auction: lot, reserve, bond, minimum sold, phase, revealed bids once commits close, and the clearing result after settlement.", inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
-  { name: "market_status", description: "Is the market behind a Stock Token open? Chainlink 24/5 and 24/7 feeds with their age, Lighter's last trade, the token's ERC-8056 multiplier, pending corporate action and oraclePaused().", inputSchema: { type: "object", properties: { symbol: { type: "string", description: "e.g. NVDA" } }, required: ["symbol"] } },
+  { name: "market_status", description: "Is the market behind a Stock Token open? Chainlink 24/5 and 24/7 feeds with their age, Pyth's 24/7 equity feed, Quicknode's oracle health (US session, mint window), Lighter's last trade, the token's ERC-8056 multiplier, pending corporate action and oraclePaused().", inputSchema: { type: "object", properties: { symbol: { type: "string", description: "e.g. NVDA" } }, required: ["symbol"] } },
   { name: "weekend_prints", description: "Every sale's clearing price next to the Chainlink price at settlement, plus Chainlink-compatible feeds that serve those prints on chain.", inputSchema: { type: "object", properties: {} } },
+  { name: "portfolio", description: "A wallet's Robinhood Stock Token holdings in shares (multipliers applied), valued in USD from Chainlink, via Quicknode's Stock Token API. Use it to see what an agent could list.", inputSchema: { type: "object", properties: { address: { type: "string" } }, required: ["address"] } },
+  { name: "corporate_actions", description: "Split and dividend history for Stock Tokens (Quicknode Stock Token API, matched to Robinhood's records). Upcoming actions freeze the oracle: a moment when sealed auctions matter.", inputSchema: { type: "object", properties: { symbols: { type: "array", items: { type: "string" } } } } },
+  { name: "tx_finality", description: "How final a Robinhood Chain transaction is: soft, posted to Ethereum, safe or finalized, with estimates (Quicknode Stock Token API). Use it on a settlement before treating it as done.", inputSchema: { type: "object", properties: { tx_hash: { type: "string" } }, required: ["tx_hash"] } },
   { name: "prepare_bid", description: "Seal a bid. Returns the salt, the commit hash, a receipt to keep (losing it means the bond burns), and the unsigned calls to send from `bidder`: approve the $WIF bond, then commit. The server never sees a key.", inputSchema: { type: "object", properties: { auction_id: { type: "number" }, bidder: { type: "string" }, quantity: { type: "string", description: "lot tokens, e.g. \"0.5\"" }, price: { type: "string", description: "quote tokens per lot token, e.g. \"160.5\"" } }, required: ["auction_id", "bidder", "quantity", "price"] } },
   { name: "prepare_reveal", description: "Open a sealed bid during the reveal phase. Takes the receipt from prepare_bid and returns the unsigned calls: approve the payment escrow, then reveal.", inputSchema: { type: "object", properties: { receipt: { type: "object" } }, required: ["receipt"] } },
   { name: "prepare_settle", description: "Anyone can settle once reveals close. Returns the unsigned settle call.", inputSchema: { type: "object", properties: { auction_id: { type: "number" } }, required: ["auction_id"] } },
@@ -94,6 +98,17 @@ async function run(name, args = {}) {
     if (s) out.result = { clearingPrice: formatUnits(s.clearingPrice, a.raw.qd), sold: formatUnits(s.sold, 18), proceeds: formatUnits(s.proceeds, a.raw.qd), chainlinkAtSettle: s.refPrice > 0n ? Number(s.refPrice) / 1e8 : null };
     return out;
   }
+  if (name === "portfolio") {
+    if (!isAddress(args.address)) throw new Error("address must be an address");
+    return quicknode("qn_getStockTokenBalances", [getAddress(args.address)]);
+  }
+  if (name === "corporate_actions") {
+    return quicknode("qn_getCorporateActions", [args.symbols?.length ? { symbols: args.symbols.map((x) => String(x).toUpperCase()) } : {}]);
+  }
+  if (name === "tx_finality") {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(args.tx_hash || "")) throw new Error("tx_hash must be 0x + 64 hex");
+    return quicknode("qn_getTransactionFinality", [args.tx_hash]);
+  }
   if (name === "market_status") {
     const t = TOKENS.find((x) => x.sym === String(args.symbol || "").toUpperCase());
     if (!t) throw new Error(`unknown Stock Token ${args.symbol}`);
@@ -108,10 +123,22 @@ async function run(name, args = {}) {
         lighter = { lastTrade: Number((d.spot_order_book_details || d.order_book_details || [])[0]?.last_trade_price) || null };
       }
     } catch {}
-    const frozen = !f5 || f5.ageHours > 2 || paused === true;
+    const health = await quicknode("qn_getOracleHealth", [{ symbols: [t.sym] }]).catch(() => null);
+    let pyth = null;
+    try {
+      const feeds = await (await fetch(`https://hermes.pyth.network/v2/price_feeds?query=${t.sym}&asset_type=equity`)).json();
+      const id = feeds.find((f) => f.attributes.symbol === `Equity.Index.${t.sym}/USD`)?.id;
+      if (id) {
+        const p = (await (await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&parsed=true`)).json()).parsed?.[0]?.price;
+        if (p) pyth = { feed24x7: Number(p.price) * 10 ** p.expo, confidence: Number(p.conf) * 10 ** p.expo, ageMinutes: Math.round((Date.now() / 1000 - p.publish_time) / 60) };
+      }
+    } catch {}
+    const qf = health?.feeds?.find((x) => x.symbol === t.sym);
+    const frozen = qf ? qf.status !== "UPDATING" : !f5 || f5.ageHours > 2 || paused === true;
     return { symbol: t.sym, name: t.name, token: t.addr, officialFeed24x5: f5, feed24x7: f7, lighter, erc8056Multiplier: mult ? Number(mult) / 1e18 : null,
       pendingCorporateAction: mult && next && next !== mult && Number(at) > Date.now() / 1000 ? { newMultiplier: Number(next) / 1e18, effectiveAt: new Date(Number(at) * 1000).toISOString() } : null,
-      oraclePaused: paused, officialPriceFrozen: frozen, hint: frozen ? "The official feed is frozen: a sealed auction is the fair way to trade this now." : "The official feed is live." };
+      pyth, oraclePaused: paused, officialPriceFrozen: frozen,
+      quicknodeOracleHealth: health ? { feedStatus: qf?.status, session: health.session, sequencer: health.sequencer?.operatorStatus?.status || health.sequencer?.status } : "Quicknode endpoint not configured", hint: frozen ? "The official feed is frozen: a sealed auction is the fair way to trade this now." : "The official feed is live." };
   }
   if (name === "weekend_prints") {
     const logs = await pub.getContractEvents({ address: TUTUP, abi, eventName: "Settled", fromBlock: FROM_BLOCK });

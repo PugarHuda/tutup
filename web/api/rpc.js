@@ -1,12 +1,13 @@
 // Same-origin, read-only JSON-RPC proxy for Robinhood Chain. The public endpoint rate-limits bursts and its 429s
-// carry no CORS header, so a busy page saw "CORS errors". Reads go here first: the public RPC, then GetBlock's
-// endpoint (GETBLOCK_RPC, kept server-side) if the first fails. Writes never pass through; wallets send those.
+// carry no CORS header, so a busy page saw "CORS errors". Reads go to Quicknode, then the public RPC, then GetBlock
+// (both sponsor keys stay server-side). Writes never pass through; wallets send those.
 const READ = new Set([
   "eth_chainId", "eth_blockNumber", "eth_call", "eth_getBalance", "eth_getCode", "eth_getLogs",
   "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getTransactionByHash", "eth_getTransactionReceipt",
   "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas", "eth_feeHistory", "eth_getStorageAt",
 ]);
-const UPSTREAMS = ["https://rpc.mainnet.chain.robinhood.com", process.env.GETBLOCK_RPC].filter(Boolean);
+// Quicknode first (our endpoint, sponsor), then the public RPC, then GetBlock (sponsor) as the last failover
+const UPSTREAMS = [process.env.QUICKNODE_RPC, "https://rpc.mainnet.chain.robinhood.com", process.env.GETBLOCK_RPC].filter(Boolean);
 const ORIGINS = /^https:\/\/(tutup\.vercel\.app|tutup-[a-z0-9-]+\.vercel\.app)$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const MAX_BATCH = 50;
 const MAX_LOG_SPAN = 50_000n;

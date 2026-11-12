@@ -228,6 +228,27 @@ async function lighterSell(symb, qty) {
   } catch { return null; }
 }
 
+// Pyth (Hermes): an independent price network with both a session feed (Equity.US.X/USD) and a 24/7 feed
+// (Equity.Index.X/USD). A second opinion next to Chainlink when the official feed is frozen.
+const pythIds = {};
+async function pyth(symb) {
+  try {
+    pythIds[symb] ??= fetch(`https://hermes.pyth.network/v2/price_feeds?query=${encodeURIComponent(symb)}&asset_type=equity`).then((r) => r.json())
+      .then((l) => ({ us: l.find((f) => f.attributes.symbol === `Equity.US.${symb}/USD`)?.id, d247: l.find((f) => f.attributes.symbol === `Equity.Index.${symb}/USD`)?.id }));
+    const ids = await pythIds[symb];
+    const want = [ids.us, ids.d247].filter(Boolean);
+    if (!want.length) return null;
+    const r = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?${want.map((i) => `ids[]=${i}`).join("&")}&parsed=true`).then((x) => x.json());
+    const val = (id) => {
+      const f = r.parsed?.find((x) => x.id === id?.replace(/^0x/, ""));
+      if (!f) return null;
+      const e = 10 ** f.price.expo;
+      return { price: Number(f.price.price) * e, conf: Number(f.price.conf) * e, ageH: (Date.now() / 1000 - f.price.publish_time) / 3600 };
+    };
+    return { us: val(ids.us), d247: val(ids.d247) };
+  } catch { return null; }
+}
+
 async function robinhood(symb) {
   try {
     const r = await fetch(`/api/rhj/prices/${encodeURIComponent(symb)}`);
@@ -256,18 +277,30 @@ function session(d = new Date()) {
 
 /// Everything known about one Stock Token right now, in USD.
 async function reference(t) {
-  const [f5, f7, lt, rh, st] = await Promise.all([
+  const [f5, f7, lt, rh, st, py] = await Promise.all([
     t.f5 ? readFeed(t.f5).catch(() => null) : null,
     t.f7 ? readFeed(t.f7).catch(() => null) : null,
-    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t),
+    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t), pyth(t.sym),
   ]);
   const closed = !f5 || f5.ageH > 2 || st?.paused || rh?.halt;
   const best = f7 && f7.ageH < 1 ? { price: f7.price, src: "Chainlink 24/7" }
     : f5 && !closed ? { price: f5.price, src: "Chainlink 24/5" }
+    : py?.d247 && py.d247.ageH < 0.25 ? { price: py.d247.price, src: "Pyth 24/7" }
     : lt?.last ? { price: lt.last, src: "Lighter last trade" }
     : f5 ? { price: f5.price, src: "Chainlink 24/5 (frozen)" } : null;
-  return { f5, f7, lt, rh, st, closed, best };
+  return { f5, f7, lt, rh, st, py, closed, best };
 }
+
+/// Quicknode Stock Token API through /api/qn (the endpoint key never reaches the browser). null if unavailable.
+async function qn(method, params = []) {
+  if (RPC !== DEFAULT.rpc) return null; // local fork runs don't touch mainnet add-ons
+  try {
+    const r = await fetch("/api/qn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method, params }) });
+    return r.ok ? (await r.json()).result : null;
+  } catch { return null; }
+}
+const SESSION_NAMES = { REGULAR: "regular", PRE_MARKET: "pre-market", POST_MARKET: "after-hours", AFTER_HOURS: "after-hours", OVERNIGHT: "overnight", CLOSED: "closed", WEEKEND: "weekend", HOLIDAY: "holiday" };
+const sessionName = (h) => (h?.session?.name ? SESSION_NAMES[h.session.name] || h.session.name.toLowerCase().replace(/_/g, " ") : session());
 
 let wifUsdCache;
 async function quoteUsd(token) {
@@ -371,6 +404,11 @@ async function vAuctions(filter = "all") {
     <div class="card tablescroll" id="tbl"><div class="empty">loading…</div></div>`;
   view.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => vAuctions(b.dataset.f)));
 
+  qn("qn_getOracleHealth", [{ symbols: ["NVDA"] }]).then((h) => {
+    if (!h) return;
+    $("s-sess").textContent = sessionName(h);
+    $("s-sess").title = `Quicknode Stock Token API · mint window ${h.session?.mintWindowOpen ? "open" : "closed"}`;
+  });
   const nv = TOKENS.find((t) => t.sym === "NVDA");
   if (nv) reference(nv).then((r) => {
     $("s-n7").textContent = usd(r.f7?.price);
@@ -399,6 +437,8 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
   const rows = [];
   if (r.f7) rows.push(["Chainlink 24/7", usd(r.f7.price), `${r.f7.ageH.toFixed(1)}h old`]);
   if (r.f5) rows.push(["Chainlink 24/5 (official)", usd(r.f5.price), r.f5.ageH > 2 ? `frozen ${r.f5.ageH.toFixed(1)}h` : "live"]);
+  if (r.py?.d247) rows.push(["Pyth 24/7 (Equity.Index)", usd(r.py.d247.price), `±${usd(r.py.d247.conf)} · ${(r.py.d247.ageH * 60).toFixed(0)} min old`]);
+  if (r.py?.us) rows.push(["Pyth US session (Equity.US)", usd(r.py.us.price), `${r.py.us.ageH.toFixed(1)}h old`]);
   if (r.lt) rows.push([`Lighter ${t.sym}/USDG`, usd(r.lt.last), `bid ${usd(r.lt.bid)} · ask ${usd(r.lt.ask)}`]);
   if (r.rh) rows.push(["Robinhood quote", `${usd(r.rh.bid)} / ${usd(r.rh.ask)}`, r.rh.halt ? "trading halt" : "no halt"]);
   if (r.sell) rows.push(["sell this lot on Lighter now", r.sell.avg ? usd(r.sell.avg) + " avg" : "no bids",
@@ -487,7 +527,13 @@ async function vAuction(id) {
         <div class="kv"><span>sold</span><b>${fmt(s.sold, 18)} ${esc(sym(a.lot))}</b></div>
         <div class="kv"><span>proceeds to seller</span><b>${fmt(s.proceeds, a.qd)} ${esc(sym(a.quote))}</b></div>
         ${s.refPrice > 0n ? `<div class="kv"><span>Chainlink at settle</span><b>${usd(Number(s.refPrice) / 1e8)}</b></div>` : ""}
-        <div class="kv"><span>unrevealed bonds burned</span><b>${a.commits - a.reveals} × ${bondTxt}</b></div>`;
+        <div class="kv"><span>unrevealed bonds burned</span><b>${a.commits - a.reveals} × ${bondTxt}</b></div>
+        <div class="kv"><span>settlement tx</span><b><a href="${EXPLORER}/tx/${settledLogs[0].transactionHash}" target="_blank" rel="noopener">${settledLogs[0].transactionHash.slice(0, 12)}…</a> <span id="fin" class="muted"></span></b></div>`;
+      qn("qn_getTransactionFinality", [settledLogs[0].transactionHash]).then((f) => {
+        if (!f) return;
+        const stage = String(f.stage || "").toLowerCase();
+        $("fin").innerHTML = `<span class="badge ${stage === "finalized" ? "b-won" : "b-reveal"}" title="Quicknode Stock Token API">${esc(stage)}${f.batchNumber ? ` · batch ${f.batchNumber}` : ""}</span>`;
+      });
     }
     const filled = Object.fromEntries(fills.map((f) => [f.args.bidder.toLowerCase(), f.args]));
     const sorted = [...bids].sort((x, y) => (y.price > x.price ? 1 : y.price < x.price ? -1 : 0));
@@ -507,6 +553,13 @@ async function vAuction(id) {
       r.sell = sell;
       const units = (v) => Number(formatUnits(v, a.qd));
       $("ref").innerHTML = refPanel(t, r, qu, units(a.reserve), settledArgs ? units(settledArgs.clearingPrice) : null);
+      qn("qn_getCorporateActions", [{ symbols: [t.sym] }]).then((c) => {
+        const acts = (c?.actions || []).slice(-3).reverse();
+        if (!c) return;
+        $("ref").insertAdjacentHTML("beforeend", `<h3 style="margin-top:14px">Corporate actions <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode</span></h3>${acts.length
+          ? acts.map((x) => `<div class="kv"><span>${esc(x.type.toLowerCase().replace(/_/g, " "))} · ${esc(x.status.toLowerCase())}</span><b>${esc((x.effectiveAtIso || "").slice(0, 10))} · ×${Number(x.ratio).toFixed(5)}</b></div>`).join("")
+          : `<p class="note">No splits or dividends on record.</p>`}`);
+      });
     }).catch(() => ($("ref").innerHTML = `<h3>Reference price</h3><p class="note">Reference sources unavailable right now.</p>`));
   } else {
     quoteUsd(WIF).then((w) => ($("ref").innerHTML = `<h3>Reference price</h3><div class="kv"><span>$WIF (worldisflat.fun)</span><b>${usd(w)}</b></div><p class="note" style="margin-top:8px">WIF pools are thin, so a sealed auction is a better way to move a block of WIF than a swap.</p>`));
@@ -596,6 +649,8 @@ async function vCreate() {
       <div class="kv"><span>reference price</span><b>Chainlink, recorded at settle</b></div>
       <p class="note" style="margin-top:12px">Right now US equities are in <b>${session()}</b>. List before the Friday close and settle over the weekend, while mint and burn are shut.</p></div></div>`;
 
+  const preset = sessionStorage.getItem("tutup:list");
+  if (preset && tokenOf(preset)) { $("lotSel").value = tokenOf(preset).addr; sessionStorage.removeItem("tutup:list"); }
   if (DEPLOYED) read("minBond").then((m) => { $("minb").textContent = fmt(m, 18, 0); $("bondIn").value = formatUnits(m, 18); }).catch(() => {});
   const refresh = async () => {
     const lot = $("lotSel").value, quote = $("quoteSel").value;
@@ -656,13 +711,24 @@ async function vCreate() {
 
 async function vMine() {
   view.innerHTML = `<div class="head"><div><p class="eyebrow">balances · bids · payouts held for you</p><h1>My account</h1></div></div>
-    <section class="stats" id="bals"></section><div id="owedBox"></div>
+    <section class="stats" id="bals"></section><div id="owedBox"></div><div id="stocks"></div>
     <h3 style="margin-top:6px">My sealed bids</h3><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
   if (!account) { $("mine").innerHTML = `<div class="empty">Connect your wallet to see your account.</div>`; return; }
   const ethBal = await pub.getBalance({ address: account });
   const bals = await Promise.all(BASE_TOKENS.map((t) => balanceOf(t.addr, account).then((b) => [t, b]).catch(() => [t, 0n])));
   $("bals").innerHTML = `<div class="card stat"><div class="k">eth (gas)</div><div class="v">${fmt(ethBal, 18, 5)}</div></div>`
     + bals.map(([t, b]) => `<div class="card stat"><div class="k">${t.sym.toLowerCase()}</div><div class="v">${fmt(b, t.addr === USDG ? 6 : 18, 2)}</div></div>`).join("");
+
+  qn("qn_getStockTokenBalances", [account]).then((r) => {
+    if (!r) return;
+    const h = (r.holdings || []).filter((x) => x.balanceRaw !== "0");
+    $("stocks").innerHTML = `<h3>My Stock Tokens <span class="muted" style="text-transform:none;letter-spacing:0">· Quicknode Stock Token API, in shares with multipliers applied</span></h3>
+      <div class="card tablescroll" style="margin-bottom:16px">${h.length ? `<table><thead><tr><th>token</th><th>tokens</th><th>shares</th><th>value</th><th></th></tr></thead><tbody>
+      ${h.map((x) => `<tr><td>${tok(x.token)}</td><td>${Number(x.balanceRaw) / 1e18}</td><td>${Number(x.balanceUiDecimal).toLocaleString(undefined, { maximumFractionDigits: 6 })}${x.pending ? ` <span class="badge b-reveal">corp action pending</span>` : ""}</td>
+        <td>${x.valueUsd ? usd(Number(x.valueUsd)) : "–"}${x.priceStale ? ` <span class="badge b-closed">price stale</span>` : ""}</td><td><a class="btn ghost" href="#create" data-list="${x.token}">List this</a></td></tr>`).join("")}</tbody></table>`
+      : `<div class="empty">No Robinhood Stock Tokens in this wallet.</div>`}</div>`;
+    $("stocks").querySelectorAll("[data-list]").forEach((a) => (a.onclick = () => sessionStorage.setItem("tutup:list", a.dataset.list)));
+  });
 
   if (DEPLOYED) {
     const owedLogs = await events("Owed", { to: account });
@@ -693,16 +759,30 @@ async function vMine() {
 }
 
 async function vMarket() {
-  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · lighter · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · pyth · lighter · quicknode · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
     <div class="callout" style="margin-bottom:14px">Official Stock Token feeds update 24/5. When one goes silent, or the token reports <code>oraclePaused()</code> during a corporate action, the market behind it is closed. That's when a Tutup auction finds a fairer price than a frozen feed. Lighter's onchain order book and Chainlink's 24/7 feeds show where trading actually is.</div>
     <div class="card tablescroll" id="mkt"><div class="empty">reading ${TOKENS.filter((t) => t.f5).length} feeds, order books and multipliers…</div></div>`;
   const list = TOKENS.filter((t) => t.f5);
+  const health = await qn("qn_getOracleHealth", [{ symbols: list.map((t) => t.sym) }]);
+  if (health) {
+    const sq = health.sequencer?.operatorStatus?.status || health.sequencer?.status || "unknown";
+    const nextAt = health.session?.nextChangeAt, mintAt = health.session?.nextMintWindowChangeAt;
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    view.querySelector(".callout").insertAdjacentHTML("afterend", `<section class="stats">
+      <div class="card stat"><div class="k">us session · quicknode</div><div class="v">${esc(sessionName(health))}</div>${nextAt ? `<div class="muted" style="font-size:11px">changes in ${countdown(BigInt(nextAt), now)}</div>` : ""}</div>
+      <div class="card stat"><div class="k">robinhood mint window</div><div class="v">${health.session?.mintWindowOpen ? "open" : "closed"}</div>${mintAt ? `<div class="muted" style="font-size:11px">${health.session?.mintWindowOpen ? "closes" : "opens"} in ${countdown(BigInt(mintAt), now)}</div>` : ""}</div>
+      <div class="card stat"><div class="k">sequencer</div><div class="v">${esc(String(sq).toLowerCase())}</div><div class="muted" style="font-size:11px">latest block ${health.sequencer?.latestBlockAgeSeconds ?? "?"}s old</div></div>
+      <div class="card stat"><div class="k">feeds not updating</div><div class="v">${(health.feeds || []).filter((f) => f.status !== "UPDATING").length} / ${(health.feeds || []).length}</div></div>
+    </section>`);
+  }
+  const qnStatus = Object.fromEntries((health?.feeds || []).map((f) => [f.symbol, f.status]));
   const rows = await Promise.all(list.map(async (t) => ({ t, r: await reference(t) })));
-  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 feed</th><th>age</th><th>24/7 feed</th><th>Lighter last</th><th>multiplier</th><th>status</th></tr></thead><tbody>
+  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 feed</th><th>age</th><th>24/7 feed</th><th>Pyth 24/7</th><th>Lighter last</th><th>multiplier</th><th>status</th>${health ? "<th>quicknode feed state</th>" : ""}</tr></thead><tbody>
     ${rows.map(({ t, r }) => `<tr><td>${tok(t.addr)} <span class="muted">${esc(t.name)}</span></td><td>${usd(r.f5?.price)}</td><td>${r.f5 ? r.f5.ageH.toFixed(1) + "h" : "–"}</td>
-      <td>${usd(r.f7?.price)}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
+      <td>${usd(r.f7?.price)}</td><td>${r.py?.d247 ? usd(r.py.d247.price) + ` <span class="muted">${pct(r.py.d247.price, r.f5?.price)}</span>` : "–"}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
       <td>${r.st?.mult ? (Number(r.st.mult) / 1e18).toFixed(4) : "–"}${r.st?.pending ? ` <span class="badge b-reveal">pending</span>` : ""}</td>
-      <td><span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.st?.paused ? "corp action" : r.rh?.halt ? "halted" : r.closed ? "frozen" : "live"}</span></td></tr>`).join("")}</tbody></table>`;
+      <td><span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.st?.paused ? "corp action" : r.rh?.halt ? "halted" : r.closed ? "frozen" : "live"}</span></td>
+      ${health ? `<td><span class="badge ${qnStatus[t.sym] === "UPDATING" ? "b-open" : "b-closed"}">${esc((qnStatus[t.sym] || "–").toLowerCase().replace(/_/g, " "))}</span></td>` : ""}</tr>`).join("")}</tbody></table>`;
 }
 
 async function vPrints() {
@@ -855,6 +935,8 @@ function vDocs() {
       <p>An auction takes at most 64 bids, because they are sorted on chain. Bid sizes become public at reveal, but only after commits have closed. Robinhood Chain has no Chainlink sequencer-uptime feed, so prices are judged by staleness instead.</p>
       <h3>For AI agents (MCP)</h3>
       <p>Tutup is also an MCP server: <code>claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp</code>. Agents can call <code>list_auctions</code>, <code>get_auction</code>, <code>market_status</code> and <code>weekend_prints</code>, then <code>prepare_bid</code>, <code>prepare_reveal</code> and <code>prepare_settle</code>. Those return unsigned calls for the agent's own wallet, and the server never holds a key. An agent can watch the 24/5 feeds freeze and bid while people sleep.</p>
+      <h3>Quicknode</h3>
+      <p>Reads go through our Quicknode Robinhood Chain endpoint first. Its Stock Token API add-on supplies the US session and Robinhood mint window (<code>qn_getOracleHealth</code>), wallet holdings in shares (<code>qn_getStockTokenBalances</code>), split and dividend history (<code>qn_getCorporateActions</code>) and how final a settlement is on Ethereum (<code>qn_getTransactionFinality</code>). The MCP server exposes them to agents too. The endpoint key stays server-side.</p>
       <h3>Composability</h3>
       <p><code>TutupFeed</code> serves a pair's <code>lastPrint</code> behind Chainlink's <code>AggregatorV3Interface</code>, so any protocol that already reads a Chainlink feed can use the weekend price that sealed bids discovered.</p>
       <h3>Prior art</h3>
