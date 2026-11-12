@@ -3,15 +3,17 @@ import {
   formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex, maxUint256,
 } from "./viem.js"; // viem 2.21.0, bundled locally
 
-// set after deploy
-const TUTUP = "0x0000000000000000000000000000000000000000";
-const FROM_BLOCK = 0n;
+// set after deploy. ?rpc=http://127.0.0.1:8545&tutup=0x… points the page at a local fork for testing.
+const q = new URLSearchParams(location.search);
+const RPC = q.get("rpc") || "https://rpc.mainnet.chain.robinhood.com";
+const TUTUP = q.get("tutup") || "0x0000000000000000000000000000000000000000";
+const FROM_BLOCK = BigInt(q.get("from") || "0"); // set to the deploy block after deploy
 
 const chain = defineChain({
   id: 4663,
   name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.mainnet.chain.robinhood.com"] } },
+  rpcUrls: { default: { http: [RPC] } },
   blockExplorers: { default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" } },
 });
 
@@ -52,7 +54,7 @@ const erc20 = parseAbi([
 ]);
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
-const pub = createPublicClient({ chain, transport: http() });
+const pub = createPublicClient({ chain, transport: http(RPC) });
 let wallet, account;
 const $ = (id) => document.getElementById(id);
 const sym = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase())?.sym || a.slice(0, 8);
@@ -137,13 +139,13 @@ async function card(id, now, settledLogs) {
   const qd = await decimals(quote);
   const ph = phase(a, now);
   const el = document.createElement("div");
-  el.className = "card";
+  el.className = "card auction";
   const key = `tutup:${TUTUP}:${id}:${account || ""}`;
   const saved = account && JSON.parse(localStorage.getItem(key) || "null");
   const log = settledLogs.find((l) => l.args.id === id);
 
   let body = `
-    <div class="top"><span class="lot">${fmt(lotAmount, 18)} ${sym(lot)}</span><span class="badge">${ph}</span></div>
+    <div class="top"><span class="lot">${fmt(lotAmount, 18)} ${sym(lot)}</span><span class="badge ph">${ph}</span></div>
     <div class="row">auction <b>#${id}</b></div>
     <div class="row">reserve <b>${fmt(reserve, qd)} ${sym(quote)}</b></div>
     <div class="row">sealed bids <b>${commits}</b></div>`;
@@ -161,12 +163,12 @@ async function card(id, now, settledLogs) {
     body += `<div class="form"><div class="two">
       <label>quantity<input data-q placeholder="0.5" inputmode="decimal" /></label>
       <label>your price (${sym(quote)})<input data-p placeholder="${fmt(reserve, qd)}" inputmode="decimal" /></label></div>
-      <button class="primary" data-act="commit">seal bid · 50 $WIF bond</button></div>`;
+      <button class="btn" data-act="commit">seal bid · 50 $WIF bond</button></div>`;
   } else if (ph === "commit") {
-    body += `<p class="muted" style="margin:0">Your bid is sealed. Come back to reveal after commits close.</p>`;
+    body += `<p class="note">Your bid is sealed. Come back to reveal after commits close.</p>`;
   }
-  if (ph === "reveal" && saved && !saved.revealed) body += `<button class="primary" data-act="reveal">reveal my bid</button>`;
-  if (ph === "settle") body += `<button class="primary" data-act="settle">settle</button>`;
+  if (ph === "reveal" && saved && !saved.revealed) body += `<button class="btn" data-act="reveal">reveal my bid</button>`;
+  if (ph === "settle") body += `<button class="btn" data-act="settle">settle</button>`;
   el.innerHTML = body;
 
   el.addEventListener("click", async (e) => {
@@ -209,8 +211,8 @@ async function card(id, now, settledLogs) {
 async function render() {
   const count = await stats().catch((e) => (console.error(e), 0n));
   const box = $("auctions");
-  if (!count) { box.innerHTML = `<p class="muted">No auctions yet. List the first lot below.</p>`; return; }
-  const now = BigInt(Math.floor(Date.now() / 1000));
+  if (!count) { box.innerHTML = `<div class="card empty">No auctions yet. List the first lot below.</div>`; return; }
+  const now = (await pub.getBlock()).timestamp; // chain time decides the phase, not the browser clock
   const logs = await pub.getContractEvents({ address: TUTUP, abi, eventName: "Settled", fromBlock: FROM_BLOCK }).catch(() => []);
   const ids = [...Array(Number(count)).keys()].reverse().map(BigInt);
   const cards = await Promise.all(ids.map((id) => card(id, now, logs)));
@@ -247,7 +249,7 @@ function setupForm() {
 }
 
 $("connect").addEventListener("click", () => connect().catch((e) => toast(e.message)));
-$("c-link").textContent = TUTUP.slice(0, 10) + "…";
+if (q.get("rpc")) $("net").textContent = "local fork · " + RPC.replace(/^https?:\/\//, "");
 $("c-link").href = `${chain.blockExplorers.default.url}/address/${TUTUP}`;
 setupForm();
 render();
