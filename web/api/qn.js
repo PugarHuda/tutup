@@ -18,14 +18,18 @@ const ORIGINS = /^https:\/\/(tutup\.vercel\.app|tutup-[a-z0-9-]+\.vercel\.app)$|
 export async function quicknode(method, params) {
   if (!process.env.QUICKNODE_RPC) throw Object.assign(new Error("Quicknode endpoint not configured"), { status: 503 });
   if (!(method in METHODS)) throw Object.assign(new Error("method not allowed"), { status: 400 });
-  const r = await fetch(process.env.QUICKNODE_RPC, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: PINNED[method] || params || [] }),
-  });
-  const body = await r.json();
-  if (body.error) throw Object.assign(new Error(body.error.message), { status: 502 });
-  return body.result;
+  // ponytail: the free plan allows 1 add-on call/second; two quick retries ride it out, a paid plan removes the need
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(process.env.QUICKNODE_RPC, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: PINNED[method] || params || [] }),
+    });
+    const body = await r.json();
+    if (body.error && /request limit/i.test(body.error.message) && attempt < 2) { await new Promise((ok) => setTimeout(ok, 1100)); continue; }
+    if (body.error) throw Object.assign(new Error(body.error.message), { status: 502 });
+    return body.result;
+  }
 }
 
 export default async function handler(req, res) {
