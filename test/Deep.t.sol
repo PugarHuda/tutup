@@ -309,3 +309,46 @@ contract InvariantTest is Test {
         assertEq(wif.balanceOf(address(t)), h.ghostBonds(), "bonds");
     }
 }
+
+import {TutupFeed, ITutupPrints} from "../src/TutupFeed.sol";
+
+contract FeedTest is Test {
+    function test_feedReadsPrintLikeChainlink() public {
+        Token wif = new Token();
+        Token lot = new Token();
+        Token usdg = new Token(); // pretend 6 decimals below
+        Tutup t = new Tutup(IWIF(address(wif)), 100e18, 50e18);
+        TutupFeed f = new TutupFeed(ITutupPrints(address(t)), address(lot), address(usdg), 6, "NVDA / USDG weekend print");
+
+        vm.expectRevert(TutupFeed.NoPrint.selector);
+        f.latestRoundData();
+
+        address seller = address(0x5e11);
+        address a = address(0xA11CE);
+        lot.mint(seller, 1e18);
+        wif.mint(seller, 100e18);
+        wif.mint(a, 50e18);
+        usdg.mint(a, 1_000e6);
+        vm.startPrank(seller);
+        lot.approve(address(t), type(uint256).max);
+        wif.approve(address(t), type(uint256).max);
+        uint256 id = t.create(IERC20(address(lot)), IERC20(address(usdg)), 1e18, 100e6, 50e18, 0, 1 hours, 1 hours, address(0));
+        vm.stopPrank();
+        vm.startPrank(a);
+        wif.approve(address(t), type(uint256).max);
+        usdg.approve(address(t), type(uint256).max);
+        t.commit(id, t.commitHash(id, a, 1e18, 161_250000, "s"));
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        t.reveal(id, 1e18, 161_250000, "s");
+        vm.stopPrank();
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        t.settle(id);
+
+        (uint80 roundId, int256 answer,, uint256 updatedAt,) = f.latestRoundData();
+        assertEq(answer, 161_25000000, "161.25 USDG with 8 decimals, like a Chainlink USD feed");
+        assertEq(roundId, id);
+        assertEq(updatedAt, vm.getBlockTimestamp());
+        assertEq(f.decimals(), 8);
+        assertEq(f.latestAnswer(), answer);
+    }
+}

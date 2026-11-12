@@ -32,6 +32,8 @@ const ORIGINS = [
 ];
 
 const WIF = "0x5173b8eA6923c2d40267890D45C46a3480954773";
+// Chainlink-compatible feeds (TutupFeed) that serve lastPrint behind AggregatorV3Interface
+const PRINT_FEEDS = [{ pair: "WIF / WETH", addr: "0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE" }];
 const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
 const WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73";
 const NONE = "0x0000000000000000000000000000000000000000";
@@ -706,7 +708,15 @@ async function vMarket() {
 async function vPrints() {
   view.innerHTML = `<div class="head"><div><p class="eyebrow">clearing prices vs chainlink at settle</p><h1>Weekend prints</h1></div></div>
     <div class="callout" style="margin-bottom:14px">Every sale writes <code>lastPrint(lot, quote)</code> on chain: the clearing price, the amount sold and when. Any contract can read it, so the price a sealed auction discovered while the market was shut becomes something a lending market or vault can use.</div>
-    <div class="card tablescroll" id="prints"><div class="empty">loading…</div></div>`;
+    <div class="card tablescroll" id="prints"><div class="empty">loading…</div></div>
+    <h3 style="margin-top:22px">Chainlink-compatible feeds</h3>
+    <div class="card tablescroll" id="pfeeds"><div class="empty">reading…</div></div>`;
+  Promise.all(PRINT_FEEDS.map(async (f) => {
+    const [round, answer, , at] = await pub.readContract({ address: f.addr, abi: feedAbi, functionName: "latestRoundData" }).catch(() => [null, null, null, null]);
+    return `<tr><td>${esc(f.pair)}</td><td><a href="${EXPLORER}/address/${f.addr}" target="_blank" rel="noopener">${short(f.addr)}</a></td>
+      <td>${answer != null ? (Number(answer) / 1e8).toPrecision(4) : "–"}</td><td>${round != null ? "#" + round : "–"}</td><td>${at ? new Date(Number(at) * 1000).toLocaleString() : "–"}</td></tr>`;
+  })).then((rows) => ($("pfeeds").innerHTML = `<table><thead><tr><th>pair</th><th>TutupFeed</th><th>latestRoundData().answer</th><th>round = auction</th><th>updatedAt</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+    <p class="note" style="padding:0 14px 12px">Same interface as a Chainlink feed (<code>decimals() = 8</code>), so a lending market that reads Chainlink can read Tutup's weekend price with no new code. With no sale yet it reverts instead of answering 0.</p>`));
   if (!DEPLOYED) { $("prints").innerHTML = notDeployed; return; }
   const logs = await events("Settled");
   const sold = logs.filter((l) => l.args.sold > 0n).reverse();
@@ -843,6 +853,10 @@ function vDocs() {
       <p>Each listing burns 100 $WIF through WIF's own <code>burn()</code>, and unrevealed bonds burn too. The bond is what makes a sealed bid credible: without it, a fake bid costs nothing. New bidders can get $WIF from any chain through Relay.</p>
       <h3>Limits, honestly</h3>
       <p>An auction takes at most 64 bids, because they are sorted on chain. Bid sizes become public at reveal, but only after commits have closed. Robinhood Chain has no Chainlink sequencer-uptime feed, so prices are judged by staleness instead.</p>
+      <h3>For AI agents (MCP)</h3>
+      <p>Tutup is also an MCP server: <code>claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp</code>. Agents can call <code>list_auctions</code>, <code>get_auction</code>, <code>market_status</code> and <code>weekend_prints</code>, then <code>prepare_bid</code>, <code>prepare_reveal</code> and <code>prepare_settle</code>. Those return unsigned calls for the agent's own wallet, and the server never holds a key. An agent can watch the 24/5 feeds freeze and bid while people sleep.</p>
+      <h3>Composability</h3>
+      <p><code>TutupFeed</code> serves a pair's <code>lastPrint</code> behind Chainlink's <code>AggregatorV3Interface</code>, so any protocol that already reads a Chainlink feed can use the weekend price that sealed bids discovered.</p>
       <h3>Prior art</h3>
       <p>The uniform clearing price follows batch auctions like Gnosis EasyAuction and CoW. The commit–reveal bond is the classic sealed-bid answer when a chain has no private compute.</p>
     </div>
@@ -855,6 +869,8 @@ function vDocs() {
       <div class="kv"><span>chain</span><b>Robinhood Chain · 4663</b></div>
       <div class="kv"><span>min phase</span><b>5 minutes</b></div><div class="kv"><span>max bids</span><b>64</b></div>
       <div class="kv"><span>stock tokens listed</span><b>${TOKENS.length - BASE_TOKENS.length}</b></div>
+      ${PRINT_FEEDS.map((f) => `<div class="kv"><span>TutupFeed ${esc(f.pair)}</span><b><a href="${EXPLORER}/address/${f.addr}" target="_blank" rel="noopener">${short(f.addr)}</a></b></div>`).join("")}
+      <div class="kv"><span>MCP endpoint</span><b>/api/mcp</b></div>
       <div class="kv"><span>source</span><b><a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">github</a></b></div>
     </div></div>
     <p class="foot">Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</p>`;
