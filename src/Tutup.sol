@@ -30,6 +30,7 @@ contract Tutup {
         uint128 lotAmount;
         uint128 reserve; // minimum price, quote units per 1e18 lot units
         uint128 bond; // $WIF per sealed bid, set by the seller, at least minBond
+        uint128 minSold; // if demand can't fill at least this much, nothing sells and everyone is refunded
         uint64 commitEnd;
         uint64 revealEnd;
         uint32 commits;
@@ -66,8 +67,17 @@ contract Tutup {
     mapping(uint256 => Bid[]) internal _bids;
     mapping(address => mapping(address => Print)) public lastPrint; // lot => quote => print
     mapping(address => mapping(address => uint256)) public owed; // token => account => amount a payout couldn't deliver
+    uint256 private _lock = 1;
 
-    event Created(uint256 indexed id, address indexed seller, address lot, address quote, uint256 lotAmount, uint256 reserve, uint256 bond, uint64 commitEnd, uint64 revealEnd, address feed);
+    /// One lock for every entry point: escrow is pooled per token, so no token callback may re-enter anywhere.
+    modifier nonReentrant() {
+        if (_lock != 1) revert Reentrancy();
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
+
+    event Created(uint256 indexed id, address indexed seller, address lot, address quote, uint256 lotAmount, uint256 reserve, uint256 bond, uint256 minSold, uint64 commitEnd, uint64 revealEnd, address feed);
     event Cancelled(uint256 indexed id);
     event Committed(uint256 indexed id, address indexed bidder);
     event Revealed(uint256 indexed id, address indexed bidder, uint256 qty, uint256 price);
@@ -87,6 +97,7 @@ contract Tutup {
     error SellerCannotBid();
     error NotSeller();
     error NothingOwed();
+    error Reentrancy();
 
     constructor(IWIF _wif, uint256 _listFee, uint256 _minBond) {
         wif = _wif;
@@ -100,13 +111,14 @@ contract Tutup {
         uint128 lotAmount,
         uint128 reserve,
         uint128 bond,
+        uint128 minSold,
         uint64 commitDuration,
         uint64 revealDuration,
         address feed
-    ) external returns (uint256 id) {
+    ) external nonReentrant returns (uint256 id) {
         if (
-            lotAmount == 0 || address(lot) == address(quote) || bond < minBond || commitDuration < MIN_PHASE
-                || revealDuration < MIN_PHASE
+            lotAmount == 0 || minSold > lotAmount || address(lot) == address(quote) || bond < minBond
+                || commitDuration < MIN_PHASE || revealDuration < MIN_PHASE
         ) revert BadParams();
         id = auctionCount++;
         uint64 commitEnd = uint64(block.timestamp) + commitDuration;
@@ -118,6 +130,7 @@ contract Tutup {
             lotAmount: lotAmount,
             reserve: reserve,
             bond: bond,
+            minSold: minSold,
             commitEnd: commitEnd,
             revealEnd: commitEnd + revealDuration,
             commits: 0,
@@ -129,11 +142,11 @@ contract Tutup {
             _pull(wif, msg.sender, listFee);
             _burn(id, listFee, "listing");
         }
-        emit Created(id, msg.sender, address(lot), address(quote), lotAmount, reserve, bond, commitEnd, commitEnd + revealDuration, feed);
+        emit Created(id, msg.sender, address(lot), address(quote), lotAmount, reserve, bond, minSold, commitEnd, commitEnd + revealDuration, feed);
     }
 
     /// The seller can take the lot back while nobody has bid. The listing fee stays burned.
-    function cancel(uint256 id) external {
+    function cancel(uint256 id) external nonReentrant {
         Auction storage a = auctions[id];
         if (msg.sender != a.seller) revert NotSeller();
         if (a.settled || a.commits > 0 || block.timestamp >= a.commitEnd) revert WrongPhase();
@@ -143,7 +156,7 @@ contract Tutup {
     }
 
     /// @param hash keccak256(abi.encode(id, bidder, qty, price, salt)) — see commitHash()
-    function commit(uint256 id, bytes32 hash) external {
+    function commit(uint256 id, bytes32 hash) external nonReentrant {
         Auction storage a = auctions[id];
         if (a.lotAmount == 0 || a.settled || block.timestamp >= a.commitEnd) revert WrongPhase();
         if (msg.sender == a.seller) revert SellerCannotBid(); // a seller bid would only move its own clearing price
@@ -156,7 +169,7 @@ contract Tutup {
     }
 
     /// Escrows qty * price / 1e18 of the quote token and returns the bond.
-    function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt) external {
+    function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt) external nonReentrant {
         Auction storage a = auctions[id];
         if (block.timestamp < a.commitEnd || block.timestamp >= a.revealEnd) revert WrongPhase();
         bytes32 h = commitOf[id][msg.sender];
@@ -174,7 +187,7 @@ contract Tutup {
     /// Anyone can settle once reveals close. Highest prices fill first; all winners pay the marginal price.
     /// A payout that fails (a frozen or blocklisted recipient) is credited to owed[] instead, so one bad
     /// recipient can never lock everyone else's funds.
-    function settle(uint256 id) external {
+    function settle(uint256 id) external nonReentrant {
         Auction storage a = auctions[id];
         if (a.lotAmount == 0 || a.settled || block.timestamp < a.revealEnd) revert WrongPhase();
         a.settled = true;
@@ -186,6 +199,12 @@ contract Tutup {
         for (; n < b.length && left > 0; n++) {
             left -= b[n].qty < left ? b[n].qty : left;
             clearing = b[n].price;
+        }
+        if (a.lotAmount - left < a.minSold) {
+            // not enough demand to clear the seller's minimum: nobody fills, every escrow comes back
+            n = 0;
+            left = a.lotAmount;
+            clearing = 0;
         }
 
         uint256 proceeds;
@@ -221,7 +240,7 @@ contract Tutup {
     }
 
     /// Collect a payout that settlement couldn't deliver.
-    function claim(IERC20 token) external {
+    function claim(IERC20 token) external nonReentrant {
         uint256 amount = owed[address(token)][msg.sender];
         if (amount == 0) revert NothingOwed();
         owed[address(token)][msg.sender] = 0;

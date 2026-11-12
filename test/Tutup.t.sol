@@ -29,12 +29,12 @@ contract Token {
         return true;
     }
 
-    function transfer(address to, uint256 a) external returns (bool) {
+    function transfer(address to, uint256 a) external virtual returns (bool) {
         _move(msg.sender, to, a);
         return true;
     }
 
-    function transferFrom(address f, address to, uint256 a) external returns (bool) {
+    function transferFrom(address f, address to, uint256 a) external virtual returns (bool) {
         allowance[f][msg.sender] -= a;
         _move(f, to, a);
         return true;
@@ -99,7 +99,7 @@ contract TutupTest is Test {
 
     function _createBond(uint128 amount, uint128 reserve, uint128 bond) internal returns (uint256 id) {
         vm.prank(seller);
-        id = t.create(IERC20(address(lot)), IERC20(address(usdg)), amount, reserve, bond, 1 hours, 1 hours, address(feed));
+        id = t.create(IERC20(address(lot)), IERC20(address(usdg)), amount, reserve, bond, 0, 1 hours, 1 hours, address(feed));
     }
 
     function _commit(uint256 id, address who, uint128 qty, uint128 price) internal {
@@ -121,12 +121,12 @@ contract TutupTest is Test {
         _commit(id, bob, 6e18, 160e18);
         _commit(id, carol, 5e18, 150e18);
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         _reveal(id, carol, 5e18, 150e18); // reveal order must not matter
         _reveal(id, alice, 6e18, 170e18);
         _reveal(id, bob, 6e18, 160e18);
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id);
 
         // alice fills 6, bob fills the remaining 4, both at bob's 160
@@ -152,9 +152,9 @@ contract TutupTest is Test {
         _commit(id, alice, 3e18, 120e18);
         _commit(id, bob, 3e18, 200e18); // never reveals
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         _reveal(id, alice, 3e18, 120e18);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id);
 
         assertEq(wif.balanceOf(bob), 1_000e18 - BOND);
@@ -166,12 +166,12 @@ contract TutupTest is Test {
     function test_sellerSetsBondAboveFloor() public {
         vm.prank(seller);
         vm.expectRevert(Tutup.BadParams.selector);
-        t.create(IERC20(address(lot)), IERC20(address(usdg)), 1e18, 1, BOND - 1, 1 hours, 1 hours, address(0));
+        t.create(IERC20(address(lot)), IERC20(address(usdg)), 1e18, 1, BOND - 1, 0, 1 hours, 1 hours, address(0));
 
         uint256 id = _createBond(10e18, 100e18, 300e18); // a seller can price out griefers
         _commit(id, alice, 1e18, 150e18);
         assertEq(wif.balanceOf(alice), 1_000e18 - 300e18);
-        vm.warp(block.timestamp + 2 hours);
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
         t.settle(id);
         assertEq(t.totalBurned(), FEE + 300e18, "the seller's bond is what burns");
     }
@@ -210,13 +210,13 @@ contract TutupTest is Test {
         uint256 id = _create(10e18, 100e18);
         _commit(id, alice, 6e18, 170e18);
         _commit(id, bob, 6e18, 160e18);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         _reveal(id, alice, 6e18, 170e18);
         _reveal(id, bob, 6e18, 160e18);
 
         usdg.freeze(alice, true); // alice's USDG refund will fail
         lot.freeze(bob, true); // bob's lot delivery will fail
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id); // must not revert
 
         assertEq(lot.balanceOf(alice), 6e18, "alice still gets her lot");
@@ -239,12 +239,12 @@ contract TutupTest is Test {
         lot.setFee(100); // 1%
         vm.prank(seller);
         vm.expectRevert(Tutup.TransferFailed.selector);
-        t.create(IERC20(address(lot)), IERC20(address(usdg)), 1e18, 1, BOND, 1 hours, 1 hours, address(0));
+        t.create(IERC20(address(lot)), IERC20(address(usdg)), 1e18, 1, BOND, 0, 1 hours, 1 hours, address(0));
     }
 
     function test_noBids() public {
         uint256 id = _create(10e18, 100e18);
-        vm.warp(block.timestamp + 2 hours);
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
         t.settle(id);
         assertEq(lot.balanceOf(seller), 10e18);
         (uint128 price,,,) = t.lastPrint(address(lot), address(usdg));
@@ -262,7 +262,7 @@ contract TutupTest is Test {
         vm.expectRevert(Tutup.AlreadyCommitted.selector);
         t.commit(id, bytes32(uint256(1)));
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         vm.prank(bob);
         vm.expectRevert(Tutup.WrongPhase.selector);
         t.commit(id, bytes32(uint256(1))); // commits closed
@@ -281,7 +281,7 @@ contract TutupTest is Test {
         vm.expectRevert(Tutup.NoCommit.selector);
         _reveal(id, alice, 1e18, 150e18); // can't reveal twice
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         vm.expectRevert(Tutup.WrongPhase.selector);
         _reveal(id, alice, 1e18, 150e18); // reveals closed
         t.settle(id);
@@ -292,7 +292,7 @@ contract TutupTest is Test {
     function test_belowReserveCannotReveal() public {
         uint256 id = _create(10e18, 100e18);
         _commit(id, alice, 1e18, 99e18);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         vm.expectRevert(Tutup.BadReveal.selector);
         _reveal(id, alice, 1e18, 99e18);
     }
@@ -310,7 +310,7 @@ contract TutupTest is Test {
         vm.prank(alice);
         vm.expectRevert(Tutup.TooManyBids.selector);
         t.commit(id, bytes32(uint256(1)));
-        vm.warp(block.timestamp + 2 hours);
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
         t.settle(id);
         assertEq(t.totalBurned(), FEE + 64 * uint256(BOND), "a full book of fake bids burns 64 bonds");
     }
@@ -319,10 +319,10 @@ contract TutupTest is Test {
         uint256 id = _create(1e18, 100e18);
         _commit(id, alice, 1e18, 150e18);
         _commit(id, bob, 1e18, 150e18);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         _reveal(id, alice, 1e18, 150e18);
         _reveal(id, bob, 1e18, 150e18);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id);
         address winner = keccak256(abi.encode(id, alice)) < keccak256(abi.encode(id, bob)) ? alice : bob;
         assertEq(lot.balanceOf(winner), 1e18);
@@ -339,11 +339,11 @@ contract TutupTest is Test {
         _commit(id, alice, q1, p1);
         _commit(id, bob, q2, p2);
         _commit(id, carol, q3, p3);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         _reveal(id, alice, q1, p1);
         _reveal(id, bob, q2, p2);
         _reveal(id, carol, q3, p3);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id);
         assertEq(lot.balanceOf(alice) + lot.balanceOf(bob) + lot.balanceOf(carol) + lot.balanceOf(seller), 10e18);
         assertEq(usdg.balanceOf(alice) + usdg.balanceOf(bob) + usdg.balanceOf(carol) + usdg.balanceOf(seller), 4_000_000e18);

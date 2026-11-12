@@ -36,7 +36,7 @@ contract ForkTest is Test {
         vm.startPrank(seller);
         IERC20Full(WIF).approve(address(t), type(uint256).max);
         IERC20Full(NVDA).approve(address(t), type(uint256).max);
-        uint256 id = t.create(IERC20(NVDA), IERC20(USDG), 1e18, 100e6, 50e18, 1 hours, 1 hours, NVDA_FEED_247);
+        uint256 id = t.create(IERC20(NVDA), IERC20(USDG), 1e18, 100e6, 50e18, 0, 1 hours, 1 hours, NVDA_FEED_247);
         vm.stopPrank();
 
         assertEq(IERC20Full(WIF).totalSupply(), supply0 - 100e18, "real WIF burned");
@@ -46,11 +46,11 @@ contract ForkTest is Test {
         IERC20Full(WIF).approve(address(t), type(uint256).max);
         IERC20Full(USDG).approve(address(t), type(uint256).max);
         t.commit(id, h);
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.reveal(id, 1e18, 150e6, bytes32("s"));
         vm.stopPrank();
 
-        vm.warp(block.timestamp + 1 hours);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
         t.settle(id);
 
         assertEq(IERC20Full(NVDA).balanceOf(alice), 1e18);

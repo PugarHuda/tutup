@@ -111,3 +111,7 @@ input, select { background: #fff; border: 1px solid var(--line); border-radius: 
   .rpc, .newbtn { display: none; }
 }
 @media (max-width: 430px) { .stats, .two { grid-template-columns: 1fr; } }
+.picker { position: fixed; inset: 0; background: rgba(11, 11, 14, .55); display: grid; place-items: center; z-index: 60; padding: 16px; }
+.picker .card { width: min(360px, 100%); display: grid; gap: 8px; }
+.picker .btn { display: flex; align-items: center; gap: 10px; justify-content: flex-start; }
+tr.click:focus-visible td { background: #eef0fb; }
