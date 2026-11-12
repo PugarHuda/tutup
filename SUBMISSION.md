@@ -31,7 +31,7 @@ $WIF is the cost of making a credible bid and the price of listing:
 - $WIF itself can be the lot or the payment token, so WIF blocks get a fair venue too
 
 - integration types: (pick: token burn / bond-collateral / payment)
-- contract addresses: Tutup v2 = 0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30 (v1 = 0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE) · WIF 0x5173b8eA6923c2d40267890D45C46a3480954773
+- contract addresses: Tutup v3 = 0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428 · TutupFeed WIF/WETH = 0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE · v2 = 0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30 (v1 = 0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE) · WIF 0x5173b8eA6923c2d40267890D45C46a3480954773
 
 ## Step 4 · your flywheel
 - action: sellers list a lot for the next market close; bidders seal bids
@@ -42,6 +42,15 @@ $WIF is the cost of making a credible bid and the price of listing:
 - repo: https://github.com/PugarHuda/tutup
 - demo video (<=3 min): (after recording)
 - live url: https://tutup.vercel.app
+- tx hashes (v3):
+  - 0x128b9402f2fffb25ca6c2c3bba84f3c760ab7a91d776fab68281204a5c26b9b8  (deploy v3)
+  - 0x626f29532a47305451c0e22684b1846ec606765bd4aa41a9b47e2918efb92a8d  (create (100 $WIF burned, minSold 40))
+  - 0x783ff1eb7a91d99e53b97a42d70b5f0de4ff0231ab5624d7ee24fd92e00062ca  (commit, bidder 1)
+  - 0x3524ac9aa9bf9c3dfc93d58089b53a5b8d0083d3f43f0af5d60a09a25900d3c9  (commit, bidder 2)
+  - 0x9d74a8ead4246c01f561034e88c4fff98e0c270f53b0985cfae845e9d40f4fa3  (reveal, bidder 1)
+  - 0xae3fd2025b76d6d9f8d3fc74af13baa73f1cdf095b476396b3657bbffac54512  (reveal, bidder 2)
+  - 0xcbcbefacec6a383d85b0c63300e70b7c7839cf029d156710574c274c11368ba0  (settle (writes lastPrint))
+  - 0x2cb7704eecc26406593b8e10a2999b595bfa665a25d6faebda88b8c72d8b1ce7  (deploy TutupFeed WIF/WETH)
 - tx hashes (v2):
   - 0xc0e46b461e3a50271c051eebccf279ecce23aaa035e804f1a9f3200ab2a6f8d1  (deploy v2)
   - 0x444d6cfb38e29b440ae825f69adcab5b97b36ea28bd4137038f4dd75c8f72fa8  (create (100 $WIF burned))

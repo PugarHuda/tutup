@@ -16,10 +16,23 @@ Each listing burns **100 $WIF** through WIF's own `burn()`. Settlement records t
 
 ## Contract
 - `src/Tutup.sol` is a single contract with no owner, admin, pause or upgrade
-- Robinhood Chain (4663), v2: [`0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30`](https://robinhoodchain.blockscout.com/address/0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30), verified on Sourcify (exact match)
+- Robinhood Chain (4663), **v3 (current)**: [`0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428`](https://robinhoodchain.blockscout.com/address/0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428), verified on Sourcify (exact match)
+- `TutupFeed` WIF/WETH (Chainlink-compatible): [`0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE`](https://robinhoodchain.blockscout.com/address/0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE), verified on Sourcify
+- v2: [`0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30`](https://robinhoodchain.blockscout.com/address/0x408bbe1cB335Bd81EACFD5d364Bb5970d8C4fe30)
 - v1 (first deployment, auction #0): [`0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE`](https://robinhoodchain.blockscout.com/address/0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE)
 
 ## Live on Robinhood Chain mainnet
+
+### v3 auction #0
+70 $WIF paid in WETH, bond 50 $WIF, **minSold 40**. Bids were 30 @ 0.00000065 and 50 @ 0.0000006. Demand of 80 is at least 40, so both cleared at 0.0000006: 30 and 40 filled. `TutupFeed.latestRoundData()` now answers 60, which is 0.00000060 with 8 decimals.
+- deploy v3: https://robinhoodchain.blockscout.com/tx/0x128b9402f2fffb25ca6c2c3bba84f3c760ab7a91d776fab68281204a5c26b9b8
+- create (100 $WIF burned, minSold 40): https://robinhoodchain.blockscout.com/tx/0x626f29532a47305451c0e22684b1846ec606765bd4aa41a9b47e2918efb92a8d
+- commit, bidder 1: https://robinhoodchain.blockscout.com/tx/0x783ff1eb7a91d99e53b97a42d70b5f0de4ff0231ab5624d7ee24fd92e00062ca
+- commit, bidder 2: https://robinhoodchain.blockscout.com/tx/0x3524ac9aa9bf9c3dfc93d58089b53a5b8d0083d3f43f0af5d60a09a25900d3c9
+- reveal, bidder 1: https://robinhoodchain.blockscout.com/tx/0x9d74a8ead4246c01f561034e88c4fff98e0c270f53b0985cfae845e9d40f4fa3
+- reveal, bidder 2: https://robinhoodchain.blockscout.com/tx/0xae3fd2025b76d6d9f8d3fc74af13baa73f1cdf095b476396b3657bbffac54512
+- settle (writes lastPrint): https://robinhoodchain.blockscout.com/tx/0xcbcbefacec6a383d85b0c63300e70b7c7839cf029d156710574c274c11368ba0
+- deploy TutupFeed WIF/WETH: https://robinhoodchain.blockscout.com/tx/0x2cb7704eecc26406593b8e10a2999b595bfa665a25d6faebda88b8c72d8b1ce7
 
 ### v2 auction #0
 100 $WIF paid in WETH, bond 50 $WIF. Bids were 60 @ 0.00000065 and 70 @ 0.0000006, and both cleared at 0.0000006. `lastPrint(WIF, WETH)` now reads (6e11, 100e18, …, 0).
@@ -55,6 +68,23 @@ FORK_RPC=<robinhood rpc> forge test --match-contract Fork    # real WIF, NVDA, U
 - **`cancel()`** returns the lot while nobody has bid. The listing fee stays burned.
 - **`lastPrint(lot, quote)`** records the clearing price, amount sold and time of each sale for other contracts to read.
 
+## v3: second audit pass
+- **One reentrancy lock** on every entry point. Escrow is pooled per token, so no token callback may re-enter anywhere. Slither flagged the pattern, and `test/Deep.t.sol` proves a hostile token's re-entry is rejected.
+- **`minSold`**, the seller's funding threshold (as in Gnosis EasyAuction): if demand can't clear it, nothing sells and every escrow comes back.
+- **Invariant fuzzing**: 128k random create/commit/reveal/settle calls, and the contract always holds exactly its escrow and bonds.
+- **Gas**: settling a full 64-bid book costs 3.7M gas.
+
+## Composability: TutupFeed
+`src/TutupFeed.sol` serves a pair's `lastPrint` behind Chainlink's `AggregatorV3Interface` (8 decimals, roundId = auction id, updatedAt = settlement). A lending market that already reads Chainlink can use Tutup's weekend price with no new code. With no sale yet it reverts rather than answering 0.
+
+## For AI agents: MCP
+```
+claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
+```
+- Read tools: `list_auctions`, `get_auction`, `market_status` (Chainlink 24/5 and 24/7, Lighter, ERC-8056, `oraclePaused`) and `weekend_prints`.
+- Write tools: `prepare_bid`, `prepare_reveal` and `prepare_settle`. They return **unsigned** calls for the agent's own wallet, and the server never holds a key.
+- `scripts/mcp-fork-test.mjs` runs an agent through a full bid on an anvil fork of mainnet.
+
 ## Integrations
 - **Chainlink:** every Stock Token feed on 4663, both 24/5 and 24/7, and the ETH/USD and USDG/USD feeds for USD conversion. The feed is recorded at settlement.
 - **ERC-8056 and Robinhood's token views:** `uiMultiplier`, `newUIMultiplier` and `effectiveAt` show pending corporate actions, and `oraclePaused()` flags them while they run.
@@ -62,8 +92,9 @@ FORK_RPC=<robinhood rpc> forge test --match-contract Fork    # real WIF, NVDA, U
 - **Lighter:** the Robinhood Chain order book (`api.rh.lighter.xyz`) gives the last trade and best bid/ask when the official feed is frozen.
 - **Relay:** "Get $WIF" quotes and executes ETH on Robinhood Chain, Arbitrum, Base or Ethereum into $WIF on 4663, then tracks the request with `/intents/status/v3`. This is how the project's own WIF was acquired.
 - **Registry:** all 203 Stock Tokens from `api.robinhood.com/rhj/assets`, joined to Chainlink's feed directory by `scripts/tokens.py`.
-- **GetBlock:** RPC for the mainnet fork tests.
-- **Sourcify:** both deployments are verified with an exact match.
+- **GetBlock:** RPC for the mainnet fork tests, and the server-side failover upstream (`GETBLOCK_RPC`) behind the read-only `/api/rpc` proxy and the MCP server.
+- **Sourcify:** every deployment is verified with an exact match.
+- **Slither:** static analysis on every version. The findings are triaged above and in the tests.
 
 ## Known limits
 - Up to 64 bids per auction because the bids are sorted on-chain.
