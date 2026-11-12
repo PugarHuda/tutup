@@ -130,6 +130,19 @@ Agent #25584's reputation lives in the ERC-8004 Reputation Registry on Robinhood
 - The Docs page and the MCP tool `agent_reputation` read the summary. The tool also prepares the `giveFeedback` call for a qualifying bidder.
 - The registry rejects self-feedback from the agent owner, and Tutup's own wallets never rate it. It shows "no ratings yet" until real bidders rate.
 
+## Quicknode Streams: an event-driven keeper
+
+Stream `tutup-auctions` runs on Robinhood Chain mainnet with the `logs` dataset.
+
+- A JavaScript filter ([`scripts/qn-stream-filter.js`](scripts/qn-stream-filter.js)) keeps only Tutup contract logs and skips every other block.
+- It delivers to [`/api/stream`](web/api/stream.js). That endpoint rejects unsigned requests before reading the body, caps the body and gunzip size, checks the HMAC-SHA256 over `nonce + timestamp + payload` with the stream's security token, refuses stale deliveries, and decodes the events.
+- A new listing (`Created`) wakes the keeper agent at once. The twice-daily cron stays as the fallback for reveals and settles.
+- Tested end to end: Quicknode's own signed test delivery of the `Committed` log from auction #1 came back 200 and decoded. `scripts/stream-test.mjs` checks the signature and decoding.
+
+## Quicknode ERC-8004 API
+
+The Agent Discovery & Reputation add-on is installed on the same endpoint. `/api/qn` pins `erc8004_getAgent` and `erc8004_getAgentReputation` to agent #25584 on `robinhood-mainnet`, because ids are per chain: #25584 on Base is a different agent. The Docs page and the MCP `agent_reputation` tool show Quicknode's composite score (feedback, sybil resistance, reliability, confidence tier) next to the raw registry summary.
+
 ## Integrations
 - **Uniswap v3 on Robinhood Chain:** each auction quotes what selling the same lot into the pool returns now, through QuoterV2 `0x33e8…a9e7`. The NVDA lot was bought through SwapRouter02 `0xcaf6…5cb2`.
 - **ERC-8004:** the MCP agent identity above.

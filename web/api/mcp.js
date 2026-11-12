@@ -233,7 +233,9 @@ async function run(name, args = {}) {
   if (name === "agent_reputation") {
     const clients = await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getClients", args: [AGENT_ID] });
     const [count, value, d] = clients.length ? await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getSummary", args: [AGENT_ID, clients, "tutup-auction", ""] }) : [0n, 0n, 0];
-    const out = { agent: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584", registry: REPUTATION, ratings: Number(count), average: count ? Number(value) / 10 ** d : null, raters: clients.length };
+    const qnRep = await quicknode("erc8004_getAgentReputation").catch(() => null); // pinned to #25584 on Robinhood
+    const out = { agent: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584", registry: REPUTATION, ratings: Number(count), average: count ? Number(value) / 10 ** d : null, raters: clients.length,
+      quicknode: qnRep ? { score: qnRep.score, confidence: qnRep.confidence, components: qnRep.components, source: "Quicknode ERC-8004 API, formula v1.3" } : null };
     if (args.rate_auction_id === undefined) return out;
     if (!isAddress(args.rater || "", { strict: false })) throw new Error("rater must be an address");
     const score = Number(args.score ?? 100);

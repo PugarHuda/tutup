@@ -1055,7 +1055,7 @@ function vDocs() {
       <h2 class="sub">Quicknode</h2>
       <p>Reads go through our Quicknode Robinhood Chain endpoint first. Its Stock Token API add-on supplies the US session and Robinhood mint window (<code>qn_getOracleHealth</code>), wallet holdings in shares (<code>qn_getStockTokenBalances</code>), split and dividend history (<code>qn_getCorporateActions</code>) and how final a settlement is on Ethereum (<code>qn_getTransactionFinality</code>). The MCP server exposes them to agents too. The endpoint key stays server-side.</p>
       <h2 class="sub">Onchain agent identity (ERC-8004)</h2>
-      <p>Tutup's MCP server is registered in the ERC-8004 IdentityRegistry on Robinhood Chain (<code>0x8004A169…a432</code>) as <b>agent #25584</b>. Its registration file (<a href="/agent.json" target="_blank" rel="noopener">agent.json</a>) lists the MCP endpoint, so other agents can find it onchain. Its reputation lives in the ERC-8004 Reputation Registry (<code>0x8004BAa1…9b63</code>): only bidders in a settled auction get a "Rate this auction" button, each rating is tagged with the auction id, and Tutup's own wallets never rate it.</p>
+      <p>Tutup's MCP server is registered in the ERC-8004 IdentityRegistry on Robinhood Chain (<code>0x8004A169…a432</code>) as <b>agent #25584</b>. Its registration file (<a href="/agent.json" target="_blank" rel="noopener">agent.json</a>) lists the MCP endpoint, so other agents can find it onchain. Its reputation lives in the ERC-8004 Reputation Registry (<code>0x8004BAa1…9b63</code>): only bidders in a settled auction get a "Rate this auction" button, each rating is tagged with the auction id, and Tutup's own wallets never rate it. Quicknode's ERC-8004 API indexes the same registry and adds a composite score (feedback, sybil resistance, reliability) with a confidence tier, shown next to it.</p>
       <h2 class="sub">Receipts that can't be lost (drand timelock)</h2>
       <p>Lose the salt and you can't reveal, so the bond burns. Every bid sealed here, or through the MCP server, also carries its receipt in the commit transaction, encrypted with <a href="https://github.com/drand/tlock-js" target="_blank" rel="noopener">tlock</a> to the drand quicknet round at commit close. Nobody can read it while bids are sealed: it unlocks at the first drand round a minute after commits close, so the sequencer clock can't open it early. Then the beacon is public: "Recover my bid from chain" decrypts it on any device and checks it against your sealed hash. The contract didn't change, because Solidity ignores calldata past the arguments. Once unlocked, anyone can read a bid that has a backup. It can no longer change by then, and reveals make bids public anyway. A bidder who doesn't reveal still loses the bond.</p>
       <h2 class="sub">One confirmation (EIP-5792)</h2>
@@ -1085,7 +1085,11 @@ function vDocs() {
       <div class="kv"><span>source</span><b><a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">github</a></b></div>
     </div></div>
     <p class="foot">Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</p>`;
-  reputation().then((r) => { $("rep").textContent = r.count ? `${r.average.toFixed(0)}/100 from ${r.count} rating${r.count > 1 ? "s" : ""}` : "no ratings yet"; }).catch(() => { $("rep").textContent = "unavailable"; });
+  Promise.all([reputation().catch(() => null), qn("erc8004_getAgentReputation"), qn("erc8004_getAgent")]).then(([r, q, ag]) => {
+    const reg = !r ? "registry unavailable" : r.count ? `${r.average.toFixed(0)}/100 from ${r.count} rating${r.count > 1 ? "s" : ""}` : "no ratings yet";
+    $("rep").textContent = q ? `${reg} · Quicknode score ${q.score}/100 (${q.confidence} confidence)` : reg;
+    if (ag) $("rep").title = `Indexed by Quicknode's ERC-8004 API as "${ag.metadata?.name}", protocol ${ag.protocol_tag}, on ${ag.network?.name}`;
+  });
 }
 
 // --- router ---
