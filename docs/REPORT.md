@@ -37,8 +37,8 @@
 
 | Item | Why | What is needed |
 |---|---|---|
-| Pyth prices | Hermes needs a Pro key ($2,500/mo for equities) | `PYTH_API_KEY` |
-| Gasless bids (paymaster / ERC-4337) | No bundler or paymaster on chain 4663 has been verified | A provider that supports 4663 |
+| Pyth prices | Hermes needs a Pro key ($2,500/mo for equities). Off-hours references come from Chainlink 24/7, Robinhood's quote, Lighter's order book and Uniswap v3 instead | `PYTH_API_KEY` |
+| Gasless bids (paymaster / ERC-4337) | No bundler or paymaster on chain 4663 has been verified. **Alternative shipped:** the Get $WIF page can deliver ETH for gas through Relay (real quote: 0.0005 ETH on Base → 0.000489 ETH on Robinhood Chain), so a wallet with no gas can still place its first bid | A provider that supports 4663 |
 | ERC-8004 ratings from real users | Only the people who bid can rate, and our own wallets must not | Outside bidders |
 | Outside bidders / traction | All bids so far are from house wallets, all labelled in the UI | Distribution: X thread in `DRAFTS.md` |
 | Blockscout verification | Blockscout is behind Cloudflare for the CLI. Every contract is verified on Sourcify instead | — |
