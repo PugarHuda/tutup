@@ -106,7 +106,7 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 2. **Bids** by a public rule: the whole lot at reserve + 5%. It bids only on the house's own listings (Tutup is permissionless, so a stranger could list an inflated reserve to drain it). The reveal window has to outlast the longest gap between cron runs (17h), the bond is capped at 50 WIF, and the wallet must already hold the bond and the escrow, on top of escrow it has already promised. It takes the newest lot first.
 3. **Reveals** using `salt = keccak256(key, tutup, id)`. The salt is derived, never stored, so the agent can't lose one and get its bond burned.
 
-The desk labels its bids "Tutup agent". They are the house's own bids, not outside demand. `scripts/keeper-fork-test.mjs` runs the full commit, no-double-bid, reveal and settle cycle on an anvil fork.
+The desk labels its bids "Tutup agent wallet", and labels the test bidder and the deployer as house wallets too. They are the house's own bids, not outside demand. `scripts/keeper-fork-test.mjs` runs the full commit, no-double-bid, reveal and settle cycle on an anvil fork.
 
 ## Integrations
 - **Uniswap v3 on Robinhood Chain:** each auction quotes what selling the same lot into the pool returns now, through QuoterV2 `0x33e8…a9e7`. The NVDA lot was bought through SwapRouter02 `0xcaf6…5cb2`.

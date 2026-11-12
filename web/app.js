@@ -96,8 +96,11 @@ const view = $("view");
 const tokenOf = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase());
 const sym = (a) => tokenOf(a)?.sym || a.slice(0, 8);
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
-// Tutup's own keeper agent (api/keeper.js): its bids are labelled so they are never read as outside demand
+// Tutup's own wallets, labelled wherever they appear so house activity is never read as outside demand.
+// KEEPER runs api/keeper.js; before the agent existed the same wallet placed the manual proof bids.
 const KEEPER = "0xBCbC638826C37b1B9460ECf722C86DFb1a82D024";
+const HOUSE = { [KEEPER.toLowerCase()]: "Tutup agent wallet", "0xd89f4f3b554db54d55395e437b365aa0ceb13194": "Tutup test wallet", "0x87252ce2342f89bdd97517d0e34d38a6b0148872": "Tutup deployer" };
+const house = (a) => (HOUSE[a.toLowerCase()] ? ` (${HOUSE[a.toLowerCase()]})` : "");
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const decCache = {};
 const decimals = async (a) => (decCache[a] ??= await pub.readContract({ address: a, abi: erc20, functionName: "decimals" }));
@@ -520,7 +523,7 @@ async function vAuction(id) {
         <div class="kv"><span>reserve</span><b>${fmt(a.reserve, a.qd)} ${esc(sym(a.quote))}</b></div>
         <div class="kv"><span>bond per bid</span><b>${bondTxt}</b></div>
         <div class="kv"><span>minimum sold</span><b>${a.minSold > 0n ? `${fmt(a.minSold, 18)} ${esc(sym(a.lot))}, or everyone is refunded` : "none"}</b></div>
-        <div class="kv"><span>seller</span><b><a href="${EXPLORER}/address/${a.seller}" target="_blank" rel="noopener">${short(a.seller)}</a>${isSeller ? " (you)" : ""}</b></div>
+        <div class="kv"><span>seller</span><b><a href="${EXPLORER}/address/${a.seller}" target="_blank" rel="noopener">${short(a.seller)}</a>${isSeller ? " (you)" : house(a.seller)}</b></div>
         <div class="kv"><span>sealed bids</span><b>${a.commits}</b></div>
         <div class="kv"><span>revealed</span><b>${a.reveals}</b></div>
         <div class="kv"><span>commits close</span><b>${new Date(Number(a.commitEnd) * 1000).toLocaleString()}</b></div>
@@ -556,7 +559,7 @@ async function vAuction(id) {
     $("book").innerHTML = sorted.length ? `<table><thead><tr><th>bidder</th><th>quantity</th><th>bid price</th>${s ? "<th>filled</th><th>paid</th><th>result</th>" : ""}</tr></thead><tbody>
       ${sorted.map((b) => {
         const f = filled[b.bidder.toLowerCase()];
-        return `<tr><td><a href="${EXPLORER}/address/${b.bidder}" target="_blank" rel="noopener">${short(b.bidder)}</a>${account && b.bidder.toLowerCase() === account.toLowerCase() ? " (you)" : ""}${b.bidder.toLowerCase() === KEEPER.toLowerCase() ? " (Tutup agent)" : ""}</td>
+        return `<tr><td><a href="${EXPLORER}/address/${b.bidder}" target="_blank" rel="noopener">${short(b.bidder)}</a>${account && b.bidder.toLowerCase() === account.toLowerCase() ? " (you)" : ""}${house(b.bidder)}</td>
         <td>${fmt(b.qty, 18)}</td><td>${fmt(b.price, a.qd)} ${esc(sym(a.quote))}</td>
         ${s ? `<td>${f ? fmt(f.qty, 18) : "0"}</td><td>${f ? fmt(f.paid, a.qd) + " " + esc(sym(a.quote)) : "refunded"}</td><td><span class="badge ${f ? "b-won" : "b-lost"}">${f ? "won" : "lost"}</span></td>` : ""}</tr>`;
       }).join("")}</tbody></table>` : `<div class="empty">No bids revealed.</div>`;
@@ -967,7 +970,7 @@ function vDocs() {
       <h2 class="sub">Uniswap v3 as the alternative</h2>
       <p>Stock Tokens have deep Uniswap v3 and v4 pools on Robinhood Chain. Each auction shows what selling the same lot into the pool would return now (QuoterV2), next to Lighter's order book and Chainlink. The NVDA lot in auction #2 was bought through that pool.</p>
       <h2 class="sub">Keeper agent</h2>
-      <p>A Vercel Cron job runs Tutup's own agent (<code>/api/keeper</code>, wallet <code>${short(KEEPER)}</code>) twice a day. It settles every auction whose reveals have closed, so no lot waits for a human. On the house's own listings it also bids by a public rule (the whole lot at reserve + 5%) when its wallet can fund it. It skips strangers' lots, reveal windows its schedule could miss, and bonds over 50 WIF, and reveals with a salt derived from its key and the auction id, so it never loses a salt. Its bids show as "Tutup agent" in the book. They are the house's bids, not outside demand.</p>
+      <p>A Vercel Cron job runs Tutup's own agent (<code>/api/keeper</code>, wallet <code>${short(KEEPER)}</code>) twice a day. It settles every auction whose reveals have closed, so no lot waits for a human. On the house's own listings it also bids by a public rule (the whole lot at reserve + 5%) when its wallet can fund it. It skips strangers' lots, reveal windows its schedule could miss, and bonds over 50 WIF, and reveals with a salt derived from its key and the auction id, so it never loses a salt. Its bids show as "Tutup agent wallet" in the book, and every other house wallet is labelled too. They are the house's bids, not outside demand.</p>
       <h2 class="sub">Composability</h2>
       <p><code>TutupFeed</code> serves a pair's <code>lastPrint</code> behind Chainlink's <code>AggregatorV3Interface</code>, so any protocol that already reads a Chainlink feed can use the weekend price that sealed bids discovered.</p>
       <h2 class="sub">Prior art</h2>
