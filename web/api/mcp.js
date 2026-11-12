@@ -201,7 +201,7 @@ export default async function handler(req, res) {
   if (msg.id === undefined) return res.status(202).end(); // notifications
   try {
     if (msg.method === "initialize") {
-      return reply({ protocolVersion: msg.params?.protocolVersion || "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "tutup", version: "1.0.0" },
+      return reply({ protocolVersion: msg.params?.protocolVersion || "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "tutup", version: "1.0.0", erc8004: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584" },
         instructions: "Tutup runs sealed-bid batch auctions for Robinhood Chain Stock Tokens and $WIF while the market is closed. Read with list_auctions / get_auction / market_status / weekend_prints. To bid: prepare_bid during commit, keep the receipt, prepare_reveal during reveal. Every prepare_* tool returns unsigned calls for your own wallet." });
     }
     if (msg.method === "ping") return reply({});

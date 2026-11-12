@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://rpc.mainnet.chain.robinhood.com; object-src 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
 <title>Tutup — sealed bids when the market is closed</title>
 <meta name="description" content="Sealed-bid batch auctions for Stock Tokens on Robinhood Chain, for the hours the market is shut. One clearing price, bonds in $WIF, nothing for being first.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237585e4'/><rect x='9' y='14' width='14' height='10' rx='2' fill='white'/><path d='M12 14v-3a4 4 0 0 1 8 0v3' stroke='white' stroke-width='2.5' fill='none'/></svg>">
@@ -41,11 +41,23 @@
     <div class="wrap" style="position:relative;z-index:2;width:100%">
       <h1 class="pix">THE MARKET<br>IS CLOSED.<br>BID ANYWAY.</h1>
       <div class="lead">
-        <p>Sealed-bid batch auctions for Stock Tokens on Robinhood Chain, for the hours the market is closed. Bid in secret, reveal together, and every winner pays one price. Being first wins nothing.</p>
+        <p>The weekend price for Stock Tokens, set by sealed bids and bonded in $WIF. When the official feed stops over the weekend or pauses for a corporate action, Tutup runs a sealed-bid batch auction: bid in secret, reveal together, and every winner pays one price. Being first wins nothing.</p>
         <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
           <span style="color:rgba(255,255,255,.8);font-size:11.5px">Robinhood Chain &middot; mainnet &middot; bonds in $WIF</span>
           <a class="btn-light" href="app.html">Open the desk <span>&#8599;</span></a>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="live" hidden style="padding-bottom:0">
+    <div class="wrap">
+      <div class="kicker">LIVE ON ROBINHOOD CHAIN · READ FROM THE CONTRACT</div>
+      <div class="stats" style="flex-direction:row;flex-wrap:wrap;gap:40px;margin-top:16px">
+        <div class="stat"><div class="n" id="live-burned">–</div><div class="l">$WIF burned by listings and forfeited bonds</div></div>
+        <div class="stat" style="border:0;padding:0"><div class="n" id="live-auctions">–</div><div class="l">auctions on mainnet</div></div>
+        <div class="stat" style="border:0;padding:0"><div class="n" id="live-open">–</div><div class="l">open right now: bid this weekend</div></div>
+        <div class="stat" style="border:0;padding:0"><div class="n">25584</div><div class="l">ERC-8004 agent id of Tutup's MCP server</div></div>
       </div>
     </div>
   </section>
@@ -58,7 +70,7 @@
       </div>
       <div class="flow-grid">
         <div style="display:flex;flex-direction:column;gap:14px;font-size:13px;line-height:1.75;color:#33384a">
-          <p style="margin:0"><b>The feeds stop.</b> The official Chainlink feed for each Stock Token updates 24/5 and stays frozen through the weekend.</p>
+          <p style="margin:0"><b>The feeds stop.</b> The official Chainlink feed for each Stock Token updates 24/5 (regular, extended and overnight sessions), then stays frozen from Friday night to Sunday night, on market holidays, and whenever a corporate action sets <code>oraclePaused()</code>.</p>
           <p style="margin:0"><b>Minting stops.</b> Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. Outside that window nobody can arbitrage a token back to its share.</p>
           <p style="margin:0"><b>The race starts.</b> Robinhood Chain orders transactions first come, first served. When quotes go thin, whoever is fastest takes the price.</p>
           <p style="margin:0"><b>Tutup ends the race.</b> Every bid is sealed until bidding closes, so arrival order doesn't matter, and every winner pays the same clearing price.</p>
@@ -134,5 +146,6 @@
       <span>Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</span>
     </div>
   </div>
+<script type="module" src="landing.js"></script>
 </body>
 </html>
