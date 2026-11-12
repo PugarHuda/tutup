@@ -40,7 +40,7 @@ $WIF is the cost of making a credible bid and the price of listing:
 
 ## Step 5 · proof of build
 - repo: https://github.com/PugarHuda/tutup
-- demo video (2:17): https://youtu.be/eXyt-ZirmPc
+- demo video (2:59): https://youtu.be/Dnh1mNN6ZME (earlier 2:17 cut: https://youtu.be/eXyt-ZirmPc)
 - live url: https://tutup.vercel.app
 - tx hashes (v3):
   - 0x128b9402f2fffb25ca6c2c3bba84f3c760ab7a91d776fab68281204a5c26b9b8  (deploy v3)

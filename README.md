@@ -4,7 +4,7 @@
 
 *Tutup* is Indonesian for "closed".
 
-**Live:** https://tutup.vercel.app · **Demo video (2:17):** https://youtu.be/eXyt-ZirmPc · **QA report:** [`docs/REPORT.md`](docs/REPORT.md)
+**Live:** https://tutup.vercel.app · **Demo video (2:59):** https://youtu.be/Dnh1mNN6ZME (earlier 2:17 cut: https://youtu.be/eXyt-ZirmPc) · **QA report:** [`docs/REPORT.md`](docs/REPORT.md)
 
 Stock Tokens trade 24/7. Their official Chainlink feeds update 24/5, and Authorised Participants can only mint and burn from Monday 02:00 to Saturday 02:00 CET. On weekends and during corporate actions nobody can arbitrage a token back to its share. RFQ quotes widen or vanish, and on a first-come-first-served sequencer, whoever is fastest sets the price.
 

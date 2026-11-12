@@ -53,7 +53,7 @@
 
 **49 of 49 pass** on the live site (Chrome desktop + Pixel 7 mobile, 2.4 min, `e2e/`), and the route checks also pass on **Firefox and WebKit (iPhone 14): 24 of 24**.
 
-Demo video: https://youtu.be/eXyt-ZirmPc
+Demo video: https://youtu.be/Dnh1mNN6ZME (earlier cut: https://youtu.be/eXyt-ZirmPc)
 
 Coverage: landing numbers come from the contract, `llms.txt`/`agent.json`, every desk route (no console errors, no placeholder text), deep links and back/forward, an unknown auction id, house-wallet labels, Quicknode finality, the NVDA lot against all its references (Chainlink, Lighter, Robinhood, Uniswap, ERC-8056, Quicknode corporate actions), ERC-8004 reputation, bid-form validation, a rejected signature, Relay down, chain RPC down, Lighter down, and axe accessibility.
 
