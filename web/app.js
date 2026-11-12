@@ -81,7 +81,7 @@ const stockAbi = parseAbi([
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
 // Reads: the same-origin proxy first (no CORS, server-side failover), then the public RPC directly. Batched and retried.
-const rpcOpts = { batch: { batchSize: 40, wait: 16 }, retryCount: 4, retryDelay: 300 };
+const rpcOpts = { batch: { batchSize: 30, wait: 16 }, retryCount: 4, retryDelay: 300 };
 const transport = RPC !== DEFAULT.rpc ? http(RPC, rpcOpts) : fallback([http("/api/rpc", rpcOpts), http(RPC, rpcOpts)]);
 const pub = createPublicClient({ chain, transport });
 let wallet, account;
@@ -707,9 +707,14 @@ async function vGetWif() {
     e.preventDefault();
     $("goBtn").disabled = true;
     try {
+      // check the whole quote before signing anything: every item, and the ETH they spend together
+      const items = quote.steps.flatMap((st) => st.items.map((it) => ({ st, d: it.data })));
+      if (quote.steps.some((st) => st.kind !== "transaction")) throw new Error("this route needs a signature step, which this page doesn't support");
+      for (const { d } of items) await check(d);
+      const total = items.reduce((t, { d }) => t + BigInt(d.value || 0), 0n);
+      if (total > quoted.amount) throw new Error("Relay's route spends more ETH than you entered");
       for (const step of quote.steps) {
         for (const item of step.items) {
-          if (step.kind !== "transaction") throw new Error(`step "${step.id}" needs a signature this page doesn't support`);
           const d = item.data;
           await check(d);
           const origin = ORIGINS.find((c) => c.id === quoted.origin);
