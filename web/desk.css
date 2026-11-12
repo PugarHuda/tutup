@@ -21,7 +21,7 @@ button, input, select { font: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; }
 .brand .logo { width: 36px; height: 36px; border-radius: 9px; background: var(--grad); display: grid; place-items: center; flex: none; }
 .brand b { font-size: 19px; letter-spacing: 1px; }
-.brand small { display: block; color: var(--faint); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; }
+.brand small { display: block; color: #a3a9bb; font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; }
 .rpc { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: #a9b0c4; background: #15161b; border-radius: 9px; padding: 8px 10px; word-break: break-all; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc97; box-shadow: 0 0 0 3px rgba(61, 220, 151, .15); flex: none; }
 .newbtn { border-radius: 11px; background: var(--grad); color: #fff; padding: 12px; font-weight: 500; text-align: center; text-decoration: none; }

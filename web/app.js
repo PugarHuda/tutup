@@ -45,6 +45,8 @@ const BASE_TOKENS = [
   { sym: "WETH", name: "Wrapped Ether", addr: WETH, quote: true },
 ];
 let TOKENS = BASE_TOKENS; // + every Stock Token from tokens.json (built by scripts/tokens.py)
+const tokensReady = fetch("tokens.json").then((r) => r.json())
+  .then((list) => { TOKENS = [...BASE_TOKENS, ...list.map((t) => ({ ...t, lot: true }))]; }).catch(() => {});
 
 const abi = parseAbi([
   "function auctionCount() view returns (uint256)",
@@ -402,6 +404,7 @@ async function vAuctions(filter = "all") {
     $("s-sess").textContent = sessionName(h);
     $("s-sess").title = `Quicknode Stock Token API · mint window ${h.session?.mintWindowOpen ? "open" : "closed"}`;
   });
+  await tokensReady;
   const nv = TOKENS.find((t) => t.sym === "NVDA");
   if (nv) reference(nv).then((r) => {
     $("s-n7").textContent = usd(r.f7?.price);
@@ -449,6 +452,7 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
 }
 
 async function vAuction(id) {
+  await tokensReady;
   view.innerHTML = `<div class="card empty">loading auction #${id}…</div>`;
   if (!DEPLOYED) { view.innerHTML = notDeployed; return; }
   cancelledIds = null; // a cancel may have just happened
@@ -615,6 +619,7 @@ async function vAuction(id) {
 }
 
 async function vCreate() {
+  await tokensReady;
   const stock = TOKENS.filter((t) => t.lot && t.addr !== WIF);
   view.innerHTML = `<div class="head"><div><p class="eyebrow">escrow a lot · burns 100 $wif</p><h1>List a lot</h1></div></div>
     <div class="g2"><div class="card pad"><form id="create" class="form">
@@ -703,6 +708,7 @@ async function vCreate() {
 }
 
 async function vMine() {
+  await tokensReady;
   view.innerHTML = `<div class="head"><div><p class="eyebrow">balances · bids · payouts held for you</p><h1>My account</h1></div></div>
     <section class="stats" id="bals"></section><div id="owedBox"></div><div id="stocks"></div>
     <h3 style="margin-top:6px">My sealed bids</h3><div class="card tablescroll" id="mine"><div class="empty">loading…</div></div>`;
@@ -752,6 +758,7 @@ async function vMine() {
 }
 
 async function vMarket() {
+  await tokensReady;
   view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · lighter · quicknode · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
     <div class="callout" style="margin-bottom:14px">Official Stock Token feeds update 24/5. When one goes silent, or the token reports <code>oraclePaused()</code> during a corporate action, the market behind it is closed. That's when a Tutup auction finds a fairer price than a frozen feed. Lighter's onchain order book and Chainlink's 24/7 feeds show where trading actually is.</div>
     <div class="card tablescroll" id="mkt"><div class="empty">reading ${TOKENS.filter((t) => t.f5).length} feeds, order books and multipliers…</div></div>`;
@@ -779,6 +786,7 @@ async function vMarket() {
 }
 
 async function vPrints() {
+  await tokensReady;
   view.innerHTML = `<div class="head"><div><p class="eyebrow">clearing prices vs chainlink at settle</p><h1>Weekend prints</h1></div></div>
     <div class="callout" style="margin-bottom:14px">Every sale writes <code>lastPrint(lot, quote)</code> on chain: the clearing price, the amount sold and when. Any contract can read it, so the price a sealed auction discovered while the market was shut becomes something a lending market or vault can use.</div>
     <div class="card tablescroll" id="prints"><div class="empty">loading…</div></div>
@@ -966,6 +974,6 @@ function route() {
 $("connect").addEventListener("click", () => connect().catch((e) => toast(e.message)));
 if (RPC !== DEFAULT.rpc) $("net").textContent = "local fork · " + short(TUTUP) + " · " + RPC.replace(/^https?:\/\//, "");
 addEventListener("hashchange", route);
-fetch("tokens.json").then((r) => r.json()).then((list) => { TOKENS = [...BASE_TOKENS, ...list.map((t) => ({ ...t, lot: true }))]; }).catch(() => {}).finally(route);
+route(); // render now; only views that list Stock Tokens wait for the registry
 // ponytail: refresh live views on a timer; forms and long reads are left alone
 setInterval(() => { if (["", "#auctions", "#burns"].includes(location.hash) || /^#a\/\d+$/.test(location.hash)) { if (!document.querySelector("input:focus, select:focus")) route(); } }, 30000);
