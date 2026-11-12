@@ -2,7 +2,9 @@
 //   1. bids in open auctions it can afford, by a public rule: the whole lot at the reserve + 5%;
 //   2. reveals its own bids once reveals open. The salt is derived from its key and the auction id
 //      (keccak256(key, tutup, id)), so it is never stored anywhere and can never be lost: no forgotten reveal;
-//   3. settles every auction whose reveal window has closed (settle is permissionless).
+//   3. settles every auction whose reveal window has closed (settle is permissionless);
+//   4. lists for market makers: at the Friday US close, and whenever a Stock Token it holds reports
+//      oraclePaused() (a corporate action), it lists one lot priced off Tutup's own last clearing price.
 // It's labelled as Tutup's own agent in the UI, not as outside demand. CRON_SECRET-gated; KEEPER_TEST_* only
 // exist for the anvil-fork test (scripts/keeper-fork-test.mjs).
 import { createPublicClient, createWalletClient, http, fallback, parseAbi, keccak256, encodeAbiParameters } from "viem";
@@ -21,7 +23,20 @@ const abi = parseAbi([
   "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
   "event Committed(uint256 indexed id, address indexed bidder)",
+  "function create(address lot, address quote, uint128 lotAmount, uint128 reserve, uint128 bond, uint128 minSold, uint64 commitDuration, uint64 revealDuration, address feed) returns (uint256)",
+  "function listFee() view returns (uint256)",
 ]);
+const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)", "function oraclePaused() view returns (bool)"]);
+const WETH = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73";
+// lots the agent may list, each with the TutupFeed that prices it in WETH (8 decimals) from Tutup's last clearing price
+export const LOTS = [
+  { lot: WIF, feed: "0xDe80aC53aBB6bB595Ea4D023f4B826F7F4C269dE", friday: 20n * 10n ** 18n }, // 20 WIF every Friday close
+  { lot: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", feed: "0x1Db46a08C722A9ac57bd6aa5d07cbb9c5ec5C3f7", stock: true }, // NVDA, on a corporate action
+];
+// Friday from 20:00 UTC (the 20:00 cron) through Saturday: the US close, when official feeds go quiet
+export const fridayClose = (ts) => { const d = new Date(Number(ts) * 1000); return (d.getUTCDay() === 5 && d.getUTCHours() >= 20) || d.getUTCDay() === 6; };
+// reserve 10% under the last clearing price; 8-decimal WETH price per whole token -> 18-decimal WETH
+export const reserveFrom = (answer) => (BigInt(answer) * 10n ** 10n * 90n) / 100n;
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address, address) view returns (uint256)", "function approve(address, uint256) returns (bool)"]);
 // Tutup is permissionless, so anyone can list a lot with an inflated reserve, a huge bond or a 5-minute reveal
 // window. The agent only bids on the house's own listings, and only when the reveal window outlasts the longest
@@ -103,6 +118,30 @@ export async function runKeeper() {
     } catch (e) {
       log.push({ id: i, error: e.shortMessage || e.message });
     }
+  }
+  // 4. market-making listings: at most one open listing of its own at a time
+  try {
+    if (!all.some((a) => !a.settled && a.seller.toLowerCase() === me.toLowerCase())) {
+      for (const L of LOTS) {
+        const held = await pub.readContract({ address: L.lot, abi: erc20, functionName: "balanceOf", args: [me] });
+        const paused = L.stock && held > 0n && (await pub.readContract({ address: L.lot, abi: feedAbi, functionName: "oraclePaused" }).catch(() => false));
+        const amount = paused ? held : !L.stock && fridayClose(now) ? L.friday : 0n;
+        if (!amount) continue;
+        // no clearing price yet for this pair means no honest reserve: skip rather than guess one
+        const answer = await pub.readContract({ address: L.feed, abi: feedAbi, functionName: "latestRoundData" }).then((r) => r[1]).catch(() => 0n);
+        if (answer <= 0n) { log.push({ list: L.lot, skip: "no clearing price for this pair yet" }); continue; }
+        const fee = await pub.readContract({ address: TUTUP, abi, functionName: "listFee" });
+        const wif = await pub.readContract({ address: WIF, abi: erc20, functionName: "balanceOf", args: [me] });
+        if (wif < fee + (L.lot === WIF ? amount : 0n) || held < amount) { log.push({ list: L.lot, skip: "can't afford the listing fee and lot" }); continue; }
+        await allow(WIF, fee + (L.lot === WIF ? amount : 0n));
+        if (L.lot !== WIF) await allow(L.lot, amount);
+        // commits run 44h (Friday 20:00 -> Sunday 16:00), reveals 20h: both outlast the gap between cron runs
+        log.push({ listed: await send(TUTUP, abi, "create", [L.lot, WETH, amount, reserveFrom(answer), 50n * 10n ** 18n, 0n, 44n * 3600n, 20n * 3600n, L.feed]), lot: L.lot, why: paused ? "oraclePaused" : "friday close" });
+        break;
+      }
+    }
+  } catch (e) {
+    log.push({ list: "error", error: e.shortMessage || e.message });
   }
   return { agent: me, checked: n, actions: log };
 }
