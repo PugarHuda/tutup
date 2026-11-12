@@ -228,27 +228,6 @@ async function lighterSell(symb, qty) {
   } catch { return null; }
 }
 
-// Pyth (Hermes): an independent price network with both a session feed (Equity.US.X/USD) and a 24/7 feed
-// (Equity.Index.X/USD). A second opinion next to Chainlink when the official feed is frozen.
-const pythIds = {};
-async function pyth(symb) {
-  try {
-    pythIds[symb] ??= fetch(`https://hermes.pyth.network/v2/price_feeds?query=${encodeURIComponent(symb)}&asset_type=equity`).then((r) => r.json())
-      .then((l) => ({ us: l.find((f) => f.attributes.symbol === `Equity.US.${symb}/USD`)?.id, d247: l.find((f) => f.attributes.symbol === `Equity.Index.${symb}/USD`)?.id }));
-    const ids = await pythIds[symb];
-    const want = [ids.us, ids.d247].filter(Boolean);
-    if (!want.length) return null;
-    const r = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?${want.map((i) => `ids[]=${i}`).join("&")}&parsed=true`).then((x) => x.json());
-    const val = (id) => {
-      const f = r.parsed?.find((x) => x.id === id?.replace(/^0x/, ""));
-      if (!f) return null;
-      const e = 10 ** f.price.expo;
-      return { price: Number(f.price.price) * e, conf: Number(f.price.conf) * e, ageH: (Date.now() / 1000 - f.price.publish_time) / 3600 };
-    };
-    return { us: val(ids.us), d247: val(ids.d247) };
-  } catch { return null; }
-}
-
 async function robinhood(symb) {
   try {
     const r = await fetch(`/api/rhj/prices/${encodeURIComponent(symb)}`);
@@ -277,18 +256,17 @@ function session(d = new Date()) {
 
 /// Everything known about one Stock Token right now, in USD.
 async function reference(t) {
-  const [f5, f7, lt, rh, st, py] = await Promise.all([
+  const [f5, f7, lt, rh, st] = await Promise.all([
     t.f5 ? readFeed(t.f5).catch(() => null) : null,
     t.f7 ? readFeed(t.f7).catch(() => null) : null,
-    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t), pyth(t.sym),
+    lighter(t.sym), robinhood(t.sym), t.addr === WIF ? null : stockState(t),
   ]);
   const closed = !f5 || f5.ageH > 2 || st?.paused || rh?.halt;
   const best = f7 && f7.ageH < 1 ? { price: f7.price, src: "Chainlink 24/7" }
     : f5 && !closed ? { price: f5.price, src: "Chainlink 24/5" }
-    : py?.d247 && py.d247.ageH < 0.25 ? { price: py.d247.price, src: "Pyth 24/7" }
     : lt?.last ? { price: lt.last, src: "Lighter last trade" }
     : f5 ? { price: f5.price, src: "Chainlink 24/5 (frozen)" } : null;
-  return { f5, f7, lt, rh, st, py, closed, best };
+  return { f5, f7, lt, rh, st, closed, best };
 }
 
 /// Quicknode Stock Token API through /api/qn (the endpoint key never reaches the browser). null if unavailable.
@@ -437,8 +415,6 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
   const rows = [];
   if (r.f7) rows.push(["Chainlink 24/7", usd(r.f7.price), `${r.f7.ageH.toFixed(1)}h old`]);
   if (r.f5) rows.push(["Chainlink 24/5 (official)", usd(r.f5.price), r.f5.ageH > 2 ? `frozen ${r.f5.ageH.toFixed(1)}h` : "live"]);
-  if (r.py?.d247) rows.push(["Pyth 24/7 (Equity.Index)", usd(r.py.d247.price), `±${usd(r.py.d247.conf)} · ${(r.py.d247.ageH * 60).toFixed(0)} min old`]);
-  if (r.py?.us) rows.push(["Pyth US session (Equity.US)", usd(r.py.us.price), `${r.py.us.ageH.toFixed(1)}h old`]);
   if (r.lt) rows.push([`Lighter ${t.sym}/USDG`, usd(r.lt.last), `bid ${usd(r.lt.bid)} · ask ${usd(r.lt.ask)}`]);
   if (r.rh) rows.push(["Robinhood quote", `${usd(r.rh.bid)} / ${usd(r.rh.ask)}`, r.rh.halt ? "trading halt" : "no halt"]);
   if (r.sell) rows.push(["sell this lot on Lighter now", r.sell.avg ? usd(r.sell.avg) + " avg" : "no bids",
@@ -759,7 +735,7 @@ async function vMine() {
 }
 
 async function vMarket() {
-  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · pyth · lighter · quicknode · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
+  view.innerHTML = `<div class="head"><div><p class="eyebrow">chainlink · lighter · quicknode · erc-8056 · robinhood</p><h1>Market hours</h1></div><span class="badge b-commit">US equities: ${session()}</span></div>
     <div class="callout" style="margin-bottom:14px">Official Stock Token feeds update 24/5. When one goes silent, or the token reports <code>oraclePaused()</code> during a corporate action, the market behind it is closed. That's when a Tutup auction finds a fairer price than a frozen feed. Lighter's onchain order book and Chainlink's 24/7 feeds show where trading actually is.</div>
     <div class="card tablescroll" id="mkt"><div class="empty">reading ${TOKENS.filter((t) => t.f5).length} feeds, order books and multipliers…</div></div>`;
   const list = TOKENS.filter((t) => t.f5);
@@ -777,9 +753,9 @@ async function vMarket() {
   }
   const qnStatus = Object.fromEntries((health?.feeds || []).map((f) => [f.symbol, f.status]));
   const rows = await Promise.all(list.map(async (t) => ({ t, r: await reference(t) })));
-  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 feed</th><th>age</th><th>24/7 feed</th><th>Pyth 24/7</th><th>Lighter last</th><th>multiplier</th><th>status</th>${health ? "<th>quicknode feed state</th>" : ""}</tr></thead><tbody>
+  $("mkt").innerHTML = `<table><thead><tr><th>token</th><th>24/5 feed</th><th>age</th><th>24/7 feed</th><th>Lighter last</th><th>multiplier</th><th>status</th>${health ? "<th>quicknode feed state</th>" : ""}</tr></thead><tbody>
     ${rows.map(({ t, r }) => `<tr><td>${tok(t.addr)} <span class="muted">${esc(t.name)}</span></td><td>${usd(r.f5?.price)}</td><td>${r.f5 ? r.f5.ageH.toFixed(1) + "h" : "–"}</td>
-      <td>${usd(r.f7?.price)}</td><td>${r.py?.d247 ? usd(r.py.d247.price) + ` <span class="muted">${pct(r.py.d247.price, r.f5?.price)}</span>` : "–"}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
+      <td>${usd(r.f7?.price)}</td><td>${r.lt?.last ? usd(r.lt.last) + ` <span class="muted">${pct(r.lt.last, r.f5?.price)}</span>` : "–"}</td>
       <td>${r.st?.mult ? (Number(r.st.mult) / 1e18).toFixed(4) : "–"}${r.st?.pending ? ` <span class="badge b-reveal">pending</span>` : ""}</td>
       <td><span class="badge ${r.closed ? "b-closed" : "b-open"}">${r.st?.paused ? "corp action" : r.rh?.halt ? "halted" : r.closed ? "frozen" : "live"}</span></td>
       ${health ? `<td><span class="badge ${qnStatus[t.sym] === "UPDATING" ? "b-open" : "b-closed"}">${esc((qnStatus[t.sym] || "–").toLowerCase().replace(/_/g, " "))}</span></td>` : ""}</tr>`).join("")}</tbody></table>`;

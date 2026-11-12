@@ -70,7 +70,7 @@ async function feed(addr) {
 const TOOLS = [
   { name: "list_auctions", description: "List Tutup sealed-bid auctions on Robinhood Chain, newest first, with phase and time left.", inputSchema: { type: "object", properties: { limit: { type: "number", description: "max results, default 20" } } } },
   { name: "get_auction", description: "One auction: lot, reserve, bond, minimum sold, phase, revealed bids once commits close, and the clearing result after settlement.", inputSchema: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
-  { name: "market_status", description: "Is the market behind a Stock Token open? Chainlink 24/5 and 24/7 feeds with their age, Pyth's 24/7 equity feed, Quicknode's oracle health (US session, mint window), Lighter's last trade, the token's ERC-8056 multiplier, pending corporate action and oraclePaused().", inputSchema: { type: "object", properties: { symbol: { type: "string", description: "e.g. NVDA" } }, required: ["symbol"] } },
+  { name: "market_status", description: "Is the market behind a Stock Token open? Chainlink 24/5 and 24/7 feeds with their age, Quicknode's oracle health (US session, mint window), Lighter's last trade, the token's ERC-8056 multiplier, pending corporate action and oraclePaused().", inputSchema: { type: "object", properties: { symbol: { type: "string", description: "e.g. NVDA" } }, required: ["symbol"] } },
   { name: "weekend_prints", description: "Every sale's clearing price next to the Chainlink price at settlement, plus Chainlink-compatible feeds that serve those prints on chain.", inputSchema: { type: "object", properties: {} } },
   { name: "portfolio", description: "A wallet's Robinhood Stock Token holdings in shares (multipliers applied), valued in USD from Chainlink, via Quicknode's Stock Token API. Use it to see what an agent could list.", inputSchema: { type: "object", properties: { address: { type: "string" } }, required: ["address"] } },
   { name: "corporate_actions", description: "Split and dividend history for Stock Tokens (Quicknode Stock Token API, matched to Robinhood's records). Upcoming actions freeze the oracle: a moment when sealed auctions matter.", inputSchema: { type: "object", properties: { symbols: { type: "array", items: { type: "string" } } } } },
@@ -124,20 +124,11 @@ async function run(name, args = {}) {
       }
     } catch {}
     const health = await quicknode("qn_getOracleHealth", [{ symbols: [t.sym] }]).catch(() => null);
-    let pyth = null;
-    try {
-      const feeds = await (await fetch(`https://hermes.pyth.network/v2/price_feeds?query=${t.sym}&asset_type=equity`)).json();
-      const id = feeds.find((f) => f.attributes.symbol === `Equity.Index.${t.sym}/USD`)?.id;
-      if (id) {
-        const p = (await (await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&parsed=true`)).json()).parsed?.[0]?.price;
-        if (p) pyth = { feed24x7: Number(p.price) * 10 ** p.expo, confidence: Number(p.conf) * 10 ** p.expo, ageMinutes: Math.round((Date.now() / 1000 - p.publish_time) / 60) };
-      }
-    } catch {}
     const qf = health?.feeds?.find((x) => x.symbol === t.sym);
     const frozen = qf ? qf.status !== "UPDATING" : !f5 || f5.ageHours > 2 || paused === true;
     return { symbol: t.sym, name: t.name, token: t.addr, officialFeed24x5: f5, feed24x7: f7, lighter, erc8056Multiplier: mult ? Number(mult) / 1e18 : null,
       pendingCorporateAction: mult && next && next !== mult && Number(at) > Date.now() / 1000 ? { newMultiplier: Number(next) / 1e18, effectiveAt: new Date(Number(at) * 1000).toISOString() } : null,
-      pyth, oraclePaused: paused, officialPriceFrozen: frozen,
+      oraclePaused: paused, officialPriceFrozen: frozen,
       quicknodeOracleHealth: health ? { feedStatus: qf?.status, session: health.session, sequencer: health.sequencer?.operatorStatus?.status || health.sequencer?.status } : "Quicknode endpoint not configured", hint: frozen ? "The official feed is frozen: a sealed auction is the fair way to trade this now." : "The official feed is live." };
   }
   if (name === "weekend_prints") {
