@@ -1,8 +1,8 @@
 /* Tutup desk — after the Segel desk: dark rail, lavender grid, mono everywhere. */
 :root {
-  --bg: #e4e9f6; --ink: #14151a; --ink-2: #33384a; --muted: #6b7186; --faint: #9aa0b2;
+  --bg: #e4e9f6; --ink: #14151a; --ink-2: #33384a; --muted: #5f6578; --faint: #6b7186; /* both ≥ 4.5:1 on white (WCAG AA) */
   --card: #fff; --line: #e4e8f2; --side: #0b0b0e; --side-2: #1c1d24;
-  --violet: #5b6fd6; --grad: linear-gradient(135deg, #7585e4, #b3a6dd);
+  --violet: #4a5cc4; --grad: linear-gradient(135deg, #7585e4, #b3a6dd);
   --ok: #0b6b45; --ok-dim: #d8f6e7; --warn: #8a5300; --warn-dim: #fff1cf; --burn: #b42318; --burn-dim: #ffe3df;
   --shadow: 0 18px 50px -28px rgba(70, 60, 160, .35), 0 1px 3px rgba(70, 60, 160, .06);
   --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -115,3 +115,7 @@ input, select { background: #fff; border: 1px solid var(--line); border-radius: 
 .picker .card { width: min(360px, 100%); display: grid; gap: 8px; }
 .picker .btn { display: flex; align-items: center; gap: 10px; justify-content: flex-start; }
 tr.click:focus-visible td { background: #eef0fb; }
+
+/* reserve space for data that arrives later, so nothing jumps (Lighthouse CLS) */
+.stat .v { min-height: 1.6em; }
+#tbl, #mkt, #prints, #burns, #mine, #book { min-height: 180px; }
