@@ -1,6 +1,6 @@
 import {
   createPublicClient, createWalletClient, custom, http, defineChain, parseAbi,
-  formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex, maxUint256,
+  formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex,
 } from "./viem.js"; // viem 2.21.0, bundled locally
 
 // Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
@@ -17,7 +17,7 @@ const chain = defineChain({
   id: 4663,
   name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [RPC] } },
+  rpcUrls: { default: { http: [DEFAULT.rpc] } }, // what a wallet gets told; the page reads through RPC
   blockExplorers: { default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" } },
 });
 
@@ -89,7 +89,7 @@ async function ensureAllowance(token, amount) {
   const cur = await pub.readContract({ address: token, abi: erc20, functionName: "allowance", args: [account, TUTUP] });
   if (cur >= amount) return;
   toast(`approve ${sym(token)}: confirm in your wallet…`, 60000);
-  const hash = await wallet.writeContract({ address: token, abi: erc20, functionName: "approve", args: [TUTUP, maxUint256], account, chain });
+  const hash = await wallet.writeContract({ address: token, abi: erc20, functionName: "approve", args: [TUTUP, amount], account, chain }); // exact amount, never unlimited
   await pub.waitForTransactionReceipt({ hash });
 }
 
