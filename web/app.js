@@ -244,6 +244,22 @@ async function pyth(symb) {
   } catch { return null; }
 }
 
+// Uniswap v3 on Robinhood Chain (Stock Tokens have deep USDG and WETH pools there): what selling this lot
+// into the pool would return right now, from QuoterV2. The other half of "auction or market sell?".
+const UNI_QUOTER = "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7";
+const quoterAbi = parseAbi(["function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160, uint32, uint256)"]);
+async function uniswapSell(lot, quote, amount) {
+  if (![USDG, WETH].includes(quote)) quote = WETH;
+  let best = null;
+  for (const fee of [500, 3000, 100, 10000]) {
+    try {
+      const { result } = await pub.simulateContract({ address: UNI_QUOTER, abi: quoterAbi, functionName: "quoteExactInputSingle", args: [{ tokenIn: lot, tokenOut: quote, amountIn: amount, fee, sqrtPriceLimitX96: 0n }] });
+      if (!best || result[0] > best.out) best = { out: result[0], fee, quote };
+    } catch { /* no pool at this fee tier */ }
+  }
+  return best;
+}
+
 async function robinhood(symb) {
   try {
     const r = await fetch(`/api/rhj/prices/${encodeURIComponent(symb)}`);
@@ -437,6 +453,7 @@ function refPanel(t, r, quoteUsdPrice, reserveUnits, clearingUnits) {
   if (r.py?.us) rows.push(["Pyth US session (Equity.US)", usd(r.py.us.price), `${r.py.us.ageH.toFixed(1)}h old`]);
   if (r.lt) rows.push([`Lighter ${t.sym}/USDG`, usd(r.lt.last), `bid ${usd(r.lt.bid)} · ask ${usd(r.lt.ask)}`]);
   if (r.rh) rows.push(["Robinhood quote", `${usd(r.rh.bid)} / ${usd(r.rh.ask)}`, r.rh.halt ? "trading halt" : "no halt"]);
+  if (r.uni) rows.push(["sell this lot on Uniswap v3 now", `${r.uni.text}`, `fee tier ${r.uni.fee / 10000}%`]);
   if (r.sell) rows.push(["sell this lot on Lighter now", r.sell.avg ? usd(r.sell.avg) + " avg" : "no bids",
     r.sell.short > 0 ? `book only absorbs ${r.sell.filled.toFixed(4)}` : r.sell.avg && r.sell.best ? `${pct(r.sell.avg, r.sell.best)} vs best bid` : ""]);
   if (r.st?.mult) rows.push(["ERC-8056 multiplier", (Number(r.st.mult) / 1e18).toFixed(6), r.st.pending ? `changes to ${(Number(r.st.pending.next) / 1e18).toFixed(6)} on ${new Date(r.st.pending.at * 1000).toLocaleDateString()}` : "no pending corporate action"]);
@@ -546,8 +563,13 @@ async function vAuction(id) {
   // reference prices, in the background so the page never waits on a third party
   const t = tokenOf(a.lot);
   if (t && t.addr !== WIF) {
-    Promise.all([reference(t), quoteUsd(a.quote), lighterSell(t.sym, Number(formatUnits(a.lotAmount, 18)))]).then(([r, qu, sell]) => {
+    Promise.all([reference(t), quoteUsd(a.quote), lighterSell(t.sym, Number(formatUnits(a.lotAmount, 18))), uniswapSell(a.lot, a.quote, a.lotAmount)]).then(async ([r, qu, sell, uni]) => {
       r.sell = sell;
+      if (uni) {
+        const d = await decimals(uni.quote);
+        const usdNow = await quoteUsd(uni.quote);
+        r.uni = { fee: uni.fee, text: `${fmt(uni.out, d)} ${sym(uni.quote)}${usdNow ? ` (${usd(Number(formatUnits(uni.out, d)) * usdNow)})` : ""}` };
+      }
       const units = (v) => Number(formatUnits(v, a.qd));
       $("ref").innerHTML = refPanel(t, r, qu, units(a.reserve), settledArgs ? units(settledArgs.clearingPrice) : null);
       qn("qn_getCorporateActions", [{ symbols: [t.sym] }]).then((c) => {
@@ -938,6 +960,10 @@ function vDocs() {
       <p>Tutup is also an MCP server: <code>claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp</code>. Agents can call <code>list_auctions</code>, <code>get_auction</code>, <code>market_status</code> and <code>weekend_prints</code>, then <code>prepare_bid</code>, <code>prepare_reveal</code> and <code>prepare_settle</code>. Those return unsigned calls for the agent's own wallet, and the server never holds a key. An agent can watch the 24/5 feeds freeze and bid while people sleep.</p>
       <h2 class="sub">Quicknode</h2>
       <p>Reads go through our Quicknode Robinhood Chain endpoint first. Its Stock Token API add-on supplies the US session and Robinhood mint window (<code>qn_getOracleHealth</code>), wallet holdings in shares (<code>qn_getStockTokenBalances</code>), split and dividend history (<code>qn_getCorporateActions</code>) and how final a settlement is on Ethereum (<code>qn_getTransactionFinality</code>). The MCP server exposes them to agents too. The endpoint key stays server-side.</p>
+      <h2 class="sub">Onchain agent identity (ERC-8004)</h2>
+      <p>Tutup's MCP server is registered in the ERC-8004 IdentityRegistry on Robinhood Chain (<code>0x8004A169…a432</code>) as <b>agent #25584</b>. Its registration file (<a href="/agent.json" target="_blank" rel="noopener">agent.json</a>) lists the MCP endpoint, so other agents can find it onchain and check its reputation.</p>
+      <h2 class="sub">Uniswap v3 as the alternative</h2>
+      <p>Stock Tokens have deep Uniswap v3 and v4 pools on Robinhood Chain. Each auction shows what selling the same lot into the pool would return now (QuoterV2), next to Lighter's order book and Chainlink. The NVDA lot in auction #2 was bought through that pool.</p>
       <h2 class="sub">Composability</h2>
       <p><code>TutupFeed</code> serves a pair's <code>lastPrint</code> behind Chainlink's <code>AggregatorV3Interface</code>, so any protocol that already reads a Chainlink feed can use the weekend price that sealed bids discovered.</p>
       <h2 class="sub">Prior art</h2>
@@ -954,6 +980,7 @@ function vDocs() {
       <div class="kv"><span>stock tokens listed</span><b>${TOKENS.length - BASE_TOKENS.length}</b></div>
       ${PRINT_FEEDS.map((f) => `<div class="kv"><span>TutupFeed ${esc(f.pair)}</span><b><a href="${EXPLORER}/address/${f.addr}" target="_blank" rel="noopener">${short(f.addr)}</a></b></div>`).join("")}
       <div class="kv"><span>MCP endpoint</span><b>/api/mcp</b></div>
+      <div class="kv"><span>ERC-8004 agent</span><b><a href="${EXPLORER}/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432/instance/25584" target="_blank" rel="noopener">#25584</a></b></div>
       <div class="kv"><span>source</span><b><a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">github</a></b></div>
     </div></div>
     <p class="foot">Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</p>`;
