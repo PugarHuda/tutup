@@ -31,7 +31,7 @@ $WIF is the cost of making a credible bid and the price of listing:
 - $WIF itself can be the lot or the payment token, so WIF blocks get a fair venue too
 
 - integration types: (pick: token burn / bond-collateral / payment)
-- contract addresses: Tutup = (after deploy) · WIF 0x5173b8eA6923c2d40267890D45C46a3480954773
+- contract addresses: Tutup = 0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE · WIF 0x5173b8eA6923c2d40267890D45C46a3480954773
 
 ## Step 4 · your flywheel
 - action: sellers list a lot for the next market close; bidders seal bids
@@ -41,11 +41,17 @@ $WIF is the cost of making a credible bid and the price of listing:
 ## Step 5 · proof of build
 - repo: https://github.com/PugarHuda/tutup
 - demo video (<=3 min): (after recording)
-- live url: (after deploy)
-- tx hashes (>=2): create (listing burn), commit, reveal, settle — after deploy
+- live url: https://tutup.vercel.app
+- tx hashes:
+  - 0x84183838c9287eddac276891e53c643004f756d374470ffc892d3e86aa37aa77  (create (100 $WIF burned))
+  - 0xdcec7e21e3f8630f7a3174cd5aedf5866dad5ecc6caaa07a5b6898ba73e10d2c  (commit, bidder 1)
+  - 0x5a44b7a9f22ba2bfeff835011fc47345122bd41ca99ffed09ae6b06ed6961349  (commit, bidder 2)
+  - 0x22ab9181ed09d167b88d564809d7511a9f840298781706e7aa83428294528d13  (reveal, bidder 1)
+  - 0x322d409fde8cbe94a6b6c83bad606a48722866f533d79f083c804d6cff87c962  (reveal, bidder 2)
+  - 0x71b67d9ec902dd930019a148bca9aa8bb5984fb11b87cff3ed30092852b080f2  (settle)
 
 ### how it's made
-- Solidity 0.8.24, Foundry. One contract, no owner, no admin, no pause, no upgrade. Source verified on Blockscout.
+- Solidity 0.8.24, Foundry. One contract, no owner, no admin, no pause, no upgrade. Source verified on Sourcify (exact match).
 - Unit and fuzz tests (uniform price, partial fill, refunds, conservation of every token) plus a fork test against Robinhood Chain mainnet with the real WIF, NVDA and USDG contracts, which proves the listing burn reduces WIF's real totalSupply.
 - Chainlink: the NVDA/TSLA/GOOGL 24/7 feeds as the reference price, the 24/5 feeds to show when the market is closed.
 - RPC from GetBlock (hackathon endpoints) and Quicknode.

@@ -5,7 +5,7 @@ import {
 
 // Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
 // a link to the live site must never be able to swap the contract the page asks people to approve.
-const DEFAULT = { rpc: "https://rpc.mainnet.chain.robinhood.com", tutup: "0x0000000000000000000000000000000000000000", from: "0" };
+const DEFAULT = { rpc: "https://rpc.mainnet.chain.robinhood.com", tutup: "0x0abdDa286cCD2033c0aF5d80d5132E52Ede177FE", from: "112323226" };
 const q = new URLSearchParams(location.search);
 const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
 const pick = (k, ok) => (LOCAL && q.get(k) && ok.test(q.get(k)) ? q.get(k) : DEFAULT[k]);
@@ -69,7 +69,7 @@ const sym = (a) => TOKENS.find((t) => t.addr.toLowerCase() === a.toLowerCase())?
 const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
 const decCache = {};
 const decimals = async (a) => (decCache[a] ??= await pub.readContract({ address: a, abi: erc20, functionName: "decimals" }));
-const fmt = (v, d, max = 4) => Number(formatUnits(v, d)).toLocaleString(undefined, { maximumFractionDigits: max });
+const fmt = (v, d, max = 4) => { const n = Number(formatUnits(v, d)); return n !== 0 && Math.abs(n) < 1 ? n.toLocaleString(undefined, { maximumSignificantDigits: 4 }) : n.toLocaleString(undefined, { maximumFractionDigits: max }); };
 const tok = (a) => `<span class="tok"><i>${sym(a).slice(0, 4)}</i>${sym(a)}</span>`;
 const read = (functionName, args = []) => pub.readContract({ address: TUTUP, abi, functionName, args });
 const saveKey = (id, who) => `tutup:${TUTUP}:${id}:${who}`;
