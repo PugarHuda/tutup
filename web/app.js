@@ -3,11 +3,15 @@ import {
   formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex, maxUint256,
 } from "./viem.js"; // viem 2.21.0, bundled locally
 
-// set after deploy. ?rpc=http://127.0.0.1:8545&tutup=0x… points the page at a local fork for testing.
+// Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
+// a link to the live site must never be able to swap the contract the page asks people to approve.
+const DEFAULT = { rpc: "https://rpc.mainnet.chain.robinhood.com", tutup: "0x0000000000000000000000000000000000000000", from: "0" };
 const q = new URLSearchParams(location.search);
-const RPC = q.get("rpc") || "https://rpc.mainnet.chain.robinhood.com";
-const TUTUP = q.get("tutup") || "0x0000000000000000000000000000000000000000";
-const FROM_BLOCK = BigInt(q.get("from") || "0"); // set to the deploy block after deploy
+const LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname);
+const pick = (k, ok) => (LOCAL && q.get(k) && ok.test(q.get(k)) ? q.get(k) : DEFAULT[k]);
+const RPC = pick("rpc", /^http:\/\/(127\.0\.0\.1|localhost):\d+$/);
+const TUTUP = pick("tutup", /^0x[0-9a-fA-F]{40}$/);
+const FROM_BLOCK = BigInt(pick("from", /^\d+$/));
 
 const chain = defineChain({
   id: 4663,
@@ -249,7 +253,7 @@ function setupForm() {
 }
 
 $("connect").addEventListener("click", () => connect().catch((e) => toast(e.message)));
-if (q.get("rpc")) $("net").textContent = "local fork · " + RPC.replace(/^https?:\/\//, "");
+if (RPC !== DEFAULT.rpc) $("net").textContent = "local fork · " + TUTUP.slice(0, 8) + " · " + RPC.replace(/^https?:\/\//, "");
 $("c-link").href = `${chain.blockExplorers.default.url}/address/${TUTUP}`;
 setupForm();
 render();
