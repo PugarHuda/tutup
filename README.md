@@ -23,6 +23,19 @@ Each listing burns **100 $WIF** through WIF's own `burn()`. Settlement records t
 
 ## Live on Robinhood Chain mainnet
 
+### Open now, through the judging weekend
+- **Auction #1** sells 100 $WIF for WETH. **Auction #2** sells **0.0025 NVDA**, a real Robinhood Stock Token bought through the Uniswap v3 NVDA/WETH pool on Robinhood Chain, also for WETH.
+- For both, commits close **Sat 15 Nov 14:00 UTC** (the weekend gap, when the official feeds are frozen) and reveals close **Sun 16 Nov 12:00 UTC**.
+- A Vercel Cron keeper settles both at 12:15 UTC.
+- To bid: open https://tutup.vercel.app/app.html#a/2. Get the 50 $WIF bond from **Get $WIF** (Relay).
+- Transactions:
+  - NVDA purchase: https://robinhoodchain.blockscout.com/tx/0xf875190631c525ee19d0148d6f2b06ed66e1e74025b3a791d4d423aecad48372
+  - auction #2 create: https://robinhoodchain.blockscout.com/tx/0x2999a1b095d46ff4ca9a4008f95970316f4b9d4d3bc499fd27a45c3fd03788df
+  - auction #1 create: https://robinhoodchain.blockscout.com/tx/0xd48e26d2709cf5fe53d83700af7ba8e81a72feb3d08973e7315f8b327f019a03
+
+### Onchain agent identity
+Tutup's MCP server is **ERC-8004 agent #25584** in the IdentityRegistry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` on Robinhood Chain. Its registration file is https://tutup.vercel.app/agent.json, and it was registered in https://robinhoodchain.blockscout.com/tx/0x9eb7c762606b5d5b36907673b3b357e7950b72ea64a518c87336fee70d1fac31
+
 ### v3 auction #0
 70 $WIF paid in WETH, bond 50 $WIF, **minSold 40**. Bids were 30 @ 0.00000065 and 50 @ 0.0000006. Demand of 80 is at least 40, so both cleared at 0.0000006: 30 and 40 filled. `TutupFeed.latestRoundData()` now answers 60, which is 0.00000060 with 8 decimals.
 - deploy v3: https://robinhoodchain.blockscout.com/tx/0x128b9402f2fffb25ca6c2c3bba84f3c760ab7a91d776fab68281204a5c26b9b8
@@ -86,6 +99,9 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 - `scripts/mcp-fork-test.mjs` runs an agent through a full bid on an anvil fork of mainnet.
 
 ## Integrations
+- **Uniswap v3 on Robinhood Chain:** each auction quotes what selling the same lot into the pool returns now, through QuoterV2 `0x33e8…a9e7`. The NVDA lot was bought through SwapRouter02 `0xcaf6…5cb2`.
+- **ERC-8004:** the MCP agent identity above.
+- **Keeper:** `/api/keeper` runs from Vercel Cron and settles any auction past its reveal window with a throwaway wallet. It is CRON_SECRET-gated.
 - **Chainlink:** every Stock Token feed on 4663, both 24/5 and 24/7, and the ETH/USD and USDG/USD feeds for USD conversion. The feed is recorded at settlement.
 - **ERC-8056 and Robinhood's token views:** `uiMultiplier`, `newUIMultiplier` and `effectiveAt` show pending corporate actions, and `oraclePaused()` flags them while they run.
 - **Robinhood Stock Token API:** quotes and trading halts, read through a same-origin Vercel function (`web/api/rhj.js`) because the API sends no CORS headers.
