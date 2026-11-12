@@ -92,7 +92,14 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 - **Lighter:** the Robinhood Chain order book (`api.rh.lighter.xyz`) gives the last trade and best bid/ask when the official feed is frozen.
 - **Relay:** "Get $WIF" quotes and executes ETH on Robinhood Chain, Arbitrum, Base or Ethereum into $WIF on 4663, then tracks the request with `/intents/status/v3`. This is how the project's own WIF was acquired.
 - **Registry:** all 203 Stock Tokens from `api.robinhood.com/rhj/assets`, joined to Chainlink's feed directory by `scripts/tokens.py`.
-- **GetBlock:** RPC for the mainnet fork tests, and the server-side failover upstream (`GETBLOCK_RPC`) behind the read-only `/api/rpc` proxy and the MCP server.
+- **Quicknode:** our Robinhood Chain mainnet endpoint is the primary upstream behind `/api/rpc` and the MCP server. Its **Stock Token API** add-on is served through `/api/qn`, with the key server-side:
+  - `qn_getOracleHealth`: the US session (regular, pre-market, after-hours, overnight), Robinhood's mint window and sequencer status, shown in Market hours
+  - `qn_getStockTokenBalances`: a wallet's Stock Tokens in shares and USD, shown in My account with "List this"
+  - `qn_getTransactionFinality`: whether a settlement is soft, posted, safe or finalized on Ethereum, shown on each auction (auction #0's settlement shows FINALIZED in batch 388466)
+  - `qn_getCorporateActions`: split and dividend history for a lot
+  - MCP tools `portfolio`, `corporate_actions` and `tx_finality`, plus `market_status`, which uses oracle health
+- **GetBlock:** RPC for the mainnet fork tests, and the server-side failover upstream (`GETBLOCK_RPC`) behind `/api/rpc` and the MCP server.
+- **Pyth:** `/api/pyth` reads `Equity.US.X/USD` and `Equity.Index.X/USD` (24/7) from Hermes with a server-side Pyth Pro key. Since the Pyth Core upgrade (26 Aug 2026) Hermes needs a key, and equities need the Pro plan, so this stays dormant (`configured: false`) until a key is set. The Pyth contract on Robinhood Chain (`0xACeA…dF481`) has no pushed feeds to read instead.
 - **Sourcify:** every deployment is verified with an exact match.
 - **Slither:** static analysis on every version. The findings are triaged above and in the tests.
 
