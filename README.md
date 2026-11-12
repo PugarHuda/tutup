@@ -112,9 +112,9 @@ The desk labels its bids "Tutup agent wallet", and labels the test bidder and th
 
 A commit-reveal bidder who loses their salt can't reveal, and their bond burns. Tutup now keeps a third copy of every receipt on chain, with no contract change:
 
-- The desk and the MCP `prepare_bid` tool encrypt `{qty, price, salt}` with [tlock](https://github.com/drand/tlock-js) to the drand quicknet round at the auction's `commitEnd`. They append the result, marked `TUTP`, to the `commit(id, hash)` calldata. Solidity ignores trailing calldata.
-- While bids are sealed nobody can decrypt it, not even us. Once commits close the drand beacon is public. "Recover my bid from chain" on the desk, or `prepare_reveal` with just `auction_id` + `bidder`, finds the bidder's `Committed` log, decrypts the calldata and checks it against `commitOf` before building the reveal.
-- Live proof: test-wallet bid on auction #1, tx [`0x8754635e…`](https://robinhoodchain.blockscout.com/tx/0x8754635e894c4c74d18327a646255d7747fd80e7a3eedf22ac63549154ed057e), 803 bytes of calldata, decryptable from 15 Nov 14:00 UTC.
+- The desk and the MCP `prepare_bid` tool encrypt `{qty, price, salt}` with [tlock](https://github.com/drand/tlock-js) to the first drand quicknet round published 60s after the auction's `commitEnd`. The margin stops a round that is already out, or a lagging sequencer clock, from opening sealed bids while commits are still accepted. They append the result, marked `TUTP`, to the `commit(id, hash)` calldata. Solidity ignores trailing calldata.
+- While bids are sealed nobody can decrypt it, not even us. Once unlocked anyone can read it, but by then the bid can't change, and reveals make bids public anyway. Once commits close the drand beacon is public. "Recover my bid from chain" on the desk, or `prepare_reveal` with just `auction_id` + `bidder`, finds the bidder's `Committed` log, decrypts the calldata and checks it against `commitOf` before building the reveal.
+- Live proof: test-wallet bid on auction #1, tx [`0x8754635e…`](https://robinhoodchain.blockscout.com/tx/0x8754635e894c4c74d18327a646255d7747fd80e7a3eedf22ac63549154ed057e), 803 bytes of calldata, decryptable from 15 Nov 14:00 UTC. This bid was sealed before the 60s margin was added.
 
 Source: [`web/tlock-backup.js`](web/tlock-backup.js), shared by the desk (bundled) and `api/mcp.js`.
 

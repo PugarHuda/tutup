@@ -205,7 +205,7 @@ async function run(name, args = {}) {
     return {
       receipt: { tutup: TUTUP, chainId: 4663, auction: String(a.id), bidder, qty: qty.toString(), price: price.toString(), salt },
       warning: tail ? "Keep the receipt. If it's lost, prepare_reveal with auction_id and bidder recovers it from the chain once commits close (drand timelock)." : "Store the receipt. Without it you can't reveal, and the bond burns.",
-      timelockedBackup: tail ? { scheme: "tlock / drand quicknet", unlocksAt: a.commitEnd, bytes: tail.length / 2 } : null,
+      timelockedBackup: tail ? { scheme: "tlock / drand quicknet", unlocksAbout: new Date(Date.parse(a.commitEnd) + 63000).toISOString(), bytes: tail.length / 2 } : null,
       revealWindow: { opens: a.commitEnd, closes: a.revealEnd },
       escrowAtReveal: `${formatUnits(cost(qty, price), a.raw.qd)} ${a.quote}`,
       calls: [
