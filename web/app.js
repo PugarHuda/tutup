@@ -960,10 +960,11 @@ async function vGetWif() {
     <div class="g2"><div class="card pad"><form id="relay" class="form">
       <div class="two"><label>pay with ETH on<select name="origin">${ORIGINS.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")}</select></label>
       <label>amount of ETH<input name="amount" inputmode="decimal" value="0.0005"></label></div>
+      <label>receive on Robinhood Chain<select name="dest"><option value="wif">$WIF, for bonds and listing fees</option><option value="eth">ETH, for gas (no gas yet? start here)</option></select></label>
       <button class="btn ghost" type="button" id="quoteBtn">Get quote</button>
       <div id="quoteOut"></div>
-      <button class="btn" type="submit" id="goBtn" disabled>Swap to $WIF</button></form></div>
-    <div class="card pad"><h2 class="sub">How it works</h2><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready.</p>
+      <button class="btn" type="submit" id="goBtn" disabled>Swap</button></form></div>
+    <div class="card pad"><h2 class="sub">How it works</h2><p class="note">Relay quotes a route from ETH on the chain you pick to $WIF on Robinhood Chain, delivered to the same address. You sign one transaction on the origin chain, a Relay solver fills it on Robinhood Chain in seconds, and this page tracks the request until it lands. Bonds and listing fees are paid in $WIF, so this is how a new bidder gets ready. A wallet with no ETH on Robinhood Chain can't pay gas for its first bid, so the same route can deliver ETH for gas instead: no paymaster needed.</p>
       <div class="kv"><span>delivered to</span><b>${account ? short(account) : "your connected wallet"}</b></div>
       <div class="kv"><span>status API</span><b>/intents/status/v3</b></div></div></div>`;
   let quote, quoted;
@@ -995,13 +996,13 @@ async function vGetWif() {
     $("quoteOut").innerHTML = `<p class="note">quoting…</p>`;
     const r = await fetch("https://api.relay.link/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       user: account, recipient: account, originChainId: Number(f.get("origin")), destinationChainId: 4663,
-      originCurrency: NONE, destinationCurrency: WIF, amount, tradeType: "EXACT_INPUT" }) })
+      originCurrency: NONE, destinationCurrency: f.get("dest") === "eth" ? NONE : WIF, amount, tradeType: "EXACT_INPUT" }) })
       .then((x) => x.json().catch(() => ({ message: `Relay is unavailable right now (HTTP ${x.status})` })));
     if (!r.steps) throw new Error(r.message || "no route");
     quote = r;
-    quoted = { origin: Number(f.get("origin")), amount: BigInt(amount) };
+    quoted = { origin: Number(f.get("origin")), amount: BigInt(amount), sym: f.get("dest") === "eth" ? "ETH" : "$WIF" };
     const out = r.details?.currencyOut;
-    $("quoteOut").innerHTML = `<div class="callout">You receive about <b>${Number(out.amountFormatted).toLocaleString(undefined, { maximumFractionDigits: 2 })} $WIF</b> (${usd(Number(out.amountUsd))}) on Robinhood Chain.<br>Fees ${usd(Number(r.fees?.relayer?.amountUsd || 0) + Number(r.fees?.gas?.amountUsd || 0))} · about ${r.details?.timeEstimate ?? "?"}s.</div>`;
+    $("quoteOut").innerHTML = `<div class="callout">You receive about <b>${Number(out.amountFormatted).toLocaleString(undefined, { maximumFractionDigits: quoted.sym === "ETH" ? 6 : 2 })} ${quoted.sym}</b> (${usd(Number(out.amountUsd))}) on Robinhood Chain.<br>Fees ${usd(Number(r.fees?.relayer?.amountUsd || 0) + Number(r.fees?.gas?.amountUsd || 0))} · about ${r.details?.timeEstimate ?? "?"}s.</div>`;
     $("goBtn").disabled = false;
   };
   $("quoteBtn").onclick = () => getQuote().catch((e) => { $("quoteOut").innerHTML = `<div class="callout">Relay can't route this: ${esc(e.message)}</div>`; $("goBtn").disabled = true; });
@@ -1031,7 +1032,7 @@ async function vGetWif() {
       const id = quote.steps[0].requestId;
       for (let i = 0; i < 90; i++) {
         const s = await fetch(`https://api.relay.link/intents/status/v3?requestId=${id}`).then((x) => x.json());
-        if (s.status === "success") { toast("$WIF arrived on Robinhood Chain ✓", 8000); break; }
+        if (s.status === "success") { toast(`${quoted.sym} arrived on Robinhood Chain ✓`, 8000); break; }
         if (s.status === "refund" || s.status === "failure") throw new Error(`Relay ${s.status}`);
         await new Promise((r) => setTimeout(r, 2000));
       }
