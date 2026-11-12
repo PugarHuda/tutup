@@ -761,7 +761,7 @@ async function vMarket() {
     const sq = health.sequencer?.operatorStatus?.status || health.sequencer?.status || "unknown";
     const nextAt = health.session?.nextChangeAt, mintAt = health.session?.nextMintWindowChangeAt;
     const now = BigInt(Math.floor(Date.now() / 1000));
-    view.querySelector(".callout").insertAdjacentHTML("afterend", `<section class="stats">
+    view.querySelector(".callout")?.insertAdjacentHTML("afterend", `<section class="stats">
       <div class="card stat"><div class="k">us session · quicknode</div><div class="v">${esc(sessionName(health))}</div>${nextAt ? `<div class="muted" style="font-size:11px">changes in ${countdown(BigInt(nextAt), now)}</div>` : ""}</div>
       <div class="card stat"><div class="k">robinhood mint window</div><div class="v">${health.session?.mintWindowOpen ? "open" : "closed"}</div>${mintAt ? `<div class="muted" style="font-size:11px">${health.session?.mintWindowOpen ? "closes" : "opens"} in ${countdown(BigInt(mintAt), now)}</div>` : ""}</div>
       <div class="card stat"><div class="k">sequencer</div><div class="v">${esc(String(sq).toLowerCase())}</div><div class="muted" style="font-size:11px">latest block ${health.sequencer?.latestBlockAgeSeconds ?? "?"}s old</div></div>
