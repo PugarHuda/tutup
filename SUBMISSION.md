@@ -51,6 +51,7 @@ $WIF is the cost of making a credible bid and the price of listing:
   - 0xae3fd2025b76d6d9f8d3fc74af13baa73f1cdf095b476396b3657bbffac54512  (reveal, bidder 2)
   - 0xcbcbefacec6a383d85b0c63300e70b7c7839cf029d156710574c274c11368ba0  (settle (writes lastPrint))
   - 0x2cb7704eecc26406593b8e10a2999b595bfa665a25d6faebda88b8c72d8b1ce7  (deploy TutupFeed WIF/WETH)
+  - 0x2a3ee4fc78b5efd84cb46f275c7a72d591e10f717838d42c633e7fdc2276fa88  (deploy TutupFeed NVDA/WETH 0x1Db46a08C722A9ac57bd6aa5d07cbb9c5ec5C3f7)
 - tx hashes (v2):
   - 0xc0e46b461e3a50271c051eebccf279ecce23aaa035e804f1a9f3200ab2a6f8d1  (deploy v2)
   - 0x444d6cfb38e29b440ae825f69adcab5b97b36ea28bd4137038f4dd75c8f72fa8  (create (100 $WIF burned))

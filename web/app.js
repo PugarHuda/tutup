@@ -93,7 +93,7 @@ const stockAbi = parseAbi([
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
 // Reads go through the same-origin proxy only: it fails over server-side (Quicknode → public RPC → GetBlock), and a
-// direct browser hop to the public RPC just adds CORS/cert noise when that endpoint is down. Batched and retried.
+// direct browser hop to the public RPC just adds CORS/cert noise when that endpoint is down or blocked by the user's ISP. Batched and retried.
 const rpcOpts = { batch: { batchSize: 30, wait: 16 }, retryCount: 4, retryDelay: 300 };
 const transport = http(RPC !== DEFAULT.rpc ? RPC : "/api/rpc", rpcOpts);
 const pub = createPublicClient({ chain, transport });

@@ -48,6 +48,7 @@ Tutup's MCP server is **ERC-8004 agent #25584** in the IdentityRegistry `0x8004A
 - reveal, bidder 2: https://robinhoodchain.blockscout.com/tx/0xae3fd2025b76d6d9f8d3fc74af13baa73f1cdf095b476396b3657bbffac54512
 - settle (writes lastPrint): https://robinhoodchain.blockscout.com/tx/0xcbcbefacec6a383d85b0c63300e70b7c7839cf029d156710574c274c11368ba0
 - deploy TutupFeed WIF/WETH: https://robinhoodchain.blockscout.com/tx/0x2cb7704eecc26406593b8e10a2999b595bfa665a25d6faebda88b8c72d8b1ce7
+- deploy TutupFeed NVDA/WETH: https://robinhoodchain.blockscout.com/tx/0x2a3ee4fc78b5efd84cb46f275c7a72d591e10f717838d42c633e7fdc2276fa88
 
 ### v2 auction #0
 100 $WIF paid in WETH, bond 50 $WIF. Bids were 60 @ 0.00000065 and 70 @ 0.0000006, and both cleared at 0.0000006. `lastPrint(WIF, WETH)` now reads (6e11, 100e18, …, 0).
