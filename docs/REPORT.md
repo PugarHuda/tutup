@@ -41,7 +41,6 @@
 | Gasless bids (paymaster / ERC-4337) | No bundler or paymaster on chain 4663 has been verified | A provider that supports 4663 |
 | ERC-8004 ratings from real users | Only the people who bid can rate, and our own wallets must not | Outside bidders |
 | Outside bidders / traction | All bids so far are from house wallets, all labelled in the UI | Distribution: X thread in `DRAFTS.md` |
-| Firefox / WebKit E2E | The installed browsers don't match this Playwright version, so only Chrome desktop and mobile run | `npx playwright install` |
 | Blockscout verification | Blockscout is behind Cloudflare for the CLI. Every contract is verified on Sourcify instead | — |
 
 ## 4. Tests
@@ -52,7 +51,9 @@
 
 ## 5. E2E results
 
-**49 of 49 pass** on the live site (Chrome desktop + Pixel 7 mobile, 2.4 min, `e2e/`).
+**49 of 49 pass** on the live site (Chrome desktop + Pixel 7 mobile, 2.4 min, `e2e/`), and the route checks also pass on **Firefox and WebKit (iPhone 14): 24 of 24**.
+
+Demo video: https://youtu.be/eXyt-ZirmPc
 
 Coverage: landing numbers come from the contract, `llms.txt`/`agent.json`, every desk route (no console errors, no placeholder text), deep links and back/forward, an unknown auction id, house-wallet labels, Quicknode finality, the NVDA lot against all its references (Chainlink, Lighter, Robinhood, Uniswap, ERC-8056, Quicknode corporate actions), ERC-8004 reputation, bid-form validation, a rejected signature, Relay down, chain RPC down, Lighter down, and axe accessibility.
 

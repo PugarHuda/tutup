@@ -12,5 +12,8 @@ export default defineConfig({
   projects: [
     { name: "chrome-desktop", use: { ...devices["Desktop Chrome"], channel: "chrome", viewport: { width: 1440, height: 900 } } },
     { name: "chrome-mobile", use: { ...devices["Pixel 7"], channel: "chrome" }, grep: /@mobile/ },
+    // ponytail: other engines run the route checks only; the wallet/failure flows are engine-independent page logic
+    { name: "firefox", use: { ...devices["Desktop Firefox"] }, grep: /@mobile/ },
+    { name: "webkit-iphone", use: { ...devices["iPhone 14"] }, grep: /@mobile/ },
   ],
 });
