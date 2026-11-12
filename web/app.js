@@ -1,6 +1,6 @@
 import {
   createPublicClient, createWalletClient, custom, http, fallback, defineChain, parseAbi,
-  formatUnits, parseUnits, keccak256, encodeAbiParameters, toHex,
+  formatUnits, parseUnits, keccak256, encodeAbiParameters, encodeFunctionData, toHex,
 } from "./viem.js"; // viem 2.21.0, bundled locally
 
 // Production values, set after deploy. On localhost only, ?rpc=…&tutup=0x…&from=N points the page at a local fork:
@@ -57,12 +57,14 @@ const abi = parseAbi([
   "function bids(uint256) view returns ((address bidder, uint128 qty, uint128 price)[])",
   "function lastPrint(address, address) view returns (uint128 price, uint128 sold, uint64 at, uint64 auctionId)",
   "function owed(address, address) view returns (uint256)",
+  "function commitOf(uint256, address) view returns (bytes32)",
   "function create(address lot, address quote, uint128 lotAmount, uint128 reserve, uint128 bond, uint128 minSold, uint64 commitDuration, uint64 revealDuration, address feed) returns (uint256)",
   "function cancel(uint256 id)",
   "function commit(uint256 id, bytes32 hash)",
   "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
   "function claim(address token)",
+  "event Committed(uint256 indexed id, address indexed bidder)",
   "event Settled(uint256 indexed id, uint256 clearingPrice, uint256 sold, uint256 proceeds, int256 refPrice, uint256 refUpdatedAt)",
   "event Filled(uint256 indexed id, address indexed bidder, uint256 qty, uint256 paid)",
   "event Burned(uint256 indexed id, uint256 amount, string reason)",
@@ -132,12 +134,82 @@ async function send(fn, args, label) {
   return hash;
 }
 
-async function ensureAllowance(token, amount) {
-  const cur = await pub.readContract({ address: token, abi: erc20, functionName: "allowance", args: [account, TUTUP] });
-  if (cur >= amount) return;
-  toast(`approve ${sym(token)}: confirm in your wallet…`, 60000);
-  const hash = await wallet.writeContract({ address: token, abi: erc20, functionName: "approve", args: [TUTUP, amount], account, chain }); // exact amount, never unlimited
-  await pub.waitForTransactionReceipt({ hash });
+// EIP-5792: a wallet that can batch (a smart account, or an EOA upgraded with EIP-7702) gets approve + commit or
+// approve + reveal as one atomic bundle and one confirmation. Any other wallet sends the calls one by one.
+async function sendCalls(calls, label) {
+  if (!account) await connect();
+  const chainId = toHex(chain.id);
+  let atomic = false;
+  try {
+    const caps = await provider.request({ method: "wallet_getCapabilities", params: [account, [chainId]] });
+    const c = caps?.[chainId] || caps?.[String(chain.id)];
+    atomic = ["supported", "ready"].includes(c?.atomic?.status) || c?.atomicBatch?.supported === true;
+  } catch { /* wallet predates EIP-5792 */ }
+  if (atomic && calls.length > 1) {
+    toast(`${label}: confirm ${calls.length} calls as one bundle…`, 60000);
+    const res = await provider.request({ method: "wallet_sendCalls", params: [{ version: "2.0.0", chainId, from: account, atomicRequired: true, calls: calls.map((c) => ({ to: c.to, data: c.data, value: "0x0" })) }] });
+    const bundle = typeof res === "string" ? res : res.id;
+    for (let i = 0; i < 160; i++) {
+      const st = await provider.request({ method: "wallet_getCallsStatus", params: [bundle] });
+      if (st.status === 200 || st.status === "CONFIRMED") {
+        const rc = st.receipts || [];
+        if (rc.some((r) => !["0x1", "success", 1].includes(r.status))) throw new Error(`${label} reverted`);
+        toast(`${label}: done ✓ (one bundle)`);
+        return rc.at(-1)?.transactionHash;
+      }
+      if (st.status >= 400 || st.status === "FAILED") throw new Error(`${label} failed (status ${st.status})`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    throw new Error(`${label}: bundle still pending, check your wallet`);
+  }
+  let hash;
+  for (const [i, c] of calls.entries()) {
+    toast(`${label} (${i + 1}/${calls.length}): confirm in your wallet…`, 60000);
+    hash = await wallet.sendTransaction({ to: c.to, data: c.data, account, chain });
+    const r = await pub.waitForTransactionReceipt({ hash });
+    if (r.status !== "success") throw new Error(`${label} reverted`);
+  }
+  toast(`${label}: done ✓`);
+  return hash;
+}
+// approve exactly `amount` (never unlimited), only when the allowance is short
+const approveCall = async (token, amount) =>
+  (await pub.readContract({ address: token, abi: erc20, functionName: "allowance", args: [account, TUTUP] })) >= amount ? []
+    : [{ to: token, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [TUTUP, amount] }) }];
+
+// ERC-8004 Reputation Registry on Robinhood Chain. Bidders in a settled auction can rate Tutup's agent (#25584) on
+// chain, tagged with the auction id; the Docs page and the MCP server read the summary back. Tutup's own wallets never
+// rate it: that would be fake reputation.
+const AGENT_ID = 25584n;
+const REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63";
+const repAbi = parseAbi([
+  "function giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
+  "function getClients(uint256 agentId) view returns (address[])",
+  "function getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2) view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)",
+]);
+async function reputation() {
+  const clients = await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getClients", args: [AGENT_ID] });
+  if (!clients.length) return { count: 0, clients: 0 };
+  const [count, value, d] = await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getSummary", args: [AGENT_ID, clients, "tutup-auction", ""] });
+  return { count: Number(count), average: Number(value) / 10 ** d, clients: clients.length };
+}
+
+// drand timelock backup of a receipt (tlock-backup.js), loaded only when it's needed: it's 150 kB
+const tlock = () => import("./tlock.bundle.js");
+
+/// Recover this wallet's receipt from its own commit transaction, once commits have closed.
+async function recoverReceipt(id) {
+  const [log] = (await events("Committed", { id, bidder: account })).slice(-1);
+  if (!log) throw new Error("this wallet has no sealed bid in this auction");
+  const tx = await pub.getTransaction({ hash: log.transactionHash });
+  const tl = await tlock();
+  if (!tl.hasBackup(tx.input)) throw new Error("this bid was sealed without the onchain backup; import its receipt file instead");
+  const r = await tl.openReceipt(tx.input);
+  const onchain = await read("commitOf", [id, account]);
+  const h = keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes32" }], [id, account, BigInt(r.qty), BigInt(r.price), r.salt]));
+  if (h !== onchain) throw new Error("the backup doesn't match your sealed bid");
+  saveReceipt(id, { ...r, committed: true });
+  return r;
 }
 
 async function need(token, amount, what) {
@@ -495,7 +567,7 @@ async function vAuction(id) {
       <div class="two"><label>quantity (${esc(sym(a.lot))})<input id="qty" placeholder="0.5" inputmode="decimal"></label>
       <label>your price (${esc(sym(a.quote))} each)<input id="price" placeholder="${fmt(a.reserve, a.qd)}" inputmode="decimal"></label></div>
       <p class="note" id="bidcost">Posts a ${bondTxt} bond. At reveal you'll escrow quantity × price.</p>
-      <p class="note">We save your quantity, price and salt in this browser and download a receipt file. Without them you can't reveal, and the bond burns.</p>
+      <p class="note">Your quantity, price and salt are saved in this browser, downloaded as a receipt file, and timelocked on chain with drand: nobody can read them until commits close, then you can recover them from any device.</p>
       <button class="btn" data-act="commit">Seal bid · ${bondTxt} bond</button></div>`;
   } else if (ph === "commit") {
     action = `<h2 class="sub">Your bid</h2><div class="callout">Sealed: ${fmt(BigInt(saved.qty), 18)} ${esc(sym(a.lot))} at ${fmt(BigInt(saved.price), a.qd)} ${esc(sym(a.quote))}. Reveal opens in ${countdown(a.commitEnd, now)}.</div>
@@ -505,7 +577,8 @@ async function vAuction(id) {
       <button class="btn" data-act="reveal">Reveal my bid</button></div>`;
   } else if (ph === "reveal") {
     action = `<h2 class="sub">Reveal phase</h2><p class="note">${saved ? "Your bid is revealed." : "Bidding is closed and bidders are opening their bids."} Settlement opens in ${countdown(a.revealEnd, now)}.</p>
-      ${account && !saved ? `<label style="margin-top:12px">bid on another device? import its receipt<input type="file" id="rcpt" accept="application/json"></label>` : ""}`;
+      ${account && !saved ? `<div class="form" style="margin-top:12px"><button class="btn" data-act="recover">Recover my bid from chain</button><p class="note">Bids sealed here carry their receipt timelocked with drand in the commit transaction. Commits are closed, so it can be decrypted now and checked against your sealed hash.</p>
+        <label>or import a receipt file<input type="file" id="rcpt" accept="application/json"></label></div>` : ""}`;
   } else if (ph === "settle") {
     action = `<h2 class="sub">Ready to settle</h2><div class="form"><p class="note">Anyone can settle. The highest bids fill first and every winner pays the lowest winning price. If a payout can't be delivered to someone (for example a frozen USDG account), it's held for them to claim, so nobody else is blocked.</p><button class="btn" data-act="settle">Settle auction</button></div>`;
   } else if (ph === "cancelled") {
@@ -563,6 +636,11 @@ async function vAuction(id) {
         <td>${fmt(b.qty, 18)}</td><td>${fmt(b.price, a.qd)} ${esc(sym(a.quote))}</td>
         ${s ? `<td>${f ? fmt(f.qty, 18) : "0"}</td><td>${f ? fmt(f.paid, a.qd) + " " + esc(sym(a.quote)) : "refunded"}</td><td><span class="badge ${f ? "b-won" : "b-lost"}">${f ? "won" : "lost"}</span></td>` : ""}</tr>`;
       }).join("")}</tbody></table>` : `<div class="empty">No bids revealed.</div>`;
+    if (s && account && !house(account) && bids.some((b) => b.bidder.toLowerCase() === account.toLowerCase())) {
+      $("act").insertAdjacentHTML("beforeend", `<h2 class="sub" style="margin-top:14px">Rate this auction</h2><div class="form">
+        <label>how did Tutup do? (ERC-8004 reputation, on chain)<select id="score"><option value="100">5 · excellent</option><option value="80">4 · good</option><option value="60">3 · ok</option><option value="40">2 · poor</option><option value="20">1 · bad</option></select></label>
+        <button class="btn ghost" data-act="rate">Post rating for agent #25584</button></div>`);
+    }
   }
 
   // reference prices, in the background so the page never waits on a third party
@@ -621,8 +699,10 @@ async function vAuction(id) {
         const r = { qty: qty.toString(), price: price.toString(), salt };
         saveReceipt(id, r); // save before sending: losing the salt means losing the bond
         downloadReceipt(id, r);
-        await ensureAllowance(WIF, a.bond);
-        await send("commit", [id, hash], "seal bid");
+        // and a third copy on chain: the receipt timelocked to commitEnd with drand, appended to the commit calldata
+        let tail = "";
+        try { tail = await (await tlock()).sealReceipt(r, a.commitEnd); } catch { toast("drand is unreachable, so this bid goes out without the onchain backup. Keep the receipt file.", 7000); }
+        await sendCalls([...await approveCall(WIF, a.bond), { to: TUTUP, data: encodeFunctionData({ abi, functionName: "commit", args: [id, hash] }) + tail }], "seal bid");
         saveReceipt(id, { ...r, committed: true });
         icsReminder(id, a); // the bond burns if the reveal is missed, so put it on the calendar
       }
@@ -631,10 +711,17 @@ async function vAuction(id) {
       if (act === "reveal") {
         const qty = BigInt(saved.qty), price = BigInt(saved.price);
         await need(a.quote, cost(qty, price), "Revealing");
-        await ensureAllowance(a.quote, cost(qty, price));
-        await send("reveal", [id, qty, price, saved.salt], "reveal");
+        await sendCalls([...await approveCall(a.quote, cost(qty, price)), { to: TUTUP, data: encodeFunctionData({ abi, functionName: "reveal", args: [id, qty, price, saved.salt] }) }], "reveal");
         saveReceipt(id, { ...saved, revealed: true });
       }
+      if (act === "rate") {
+        toast("rating: confirm in your wallet…", 60000);
+        const h = await wallet.writeContract({ address: REPUTATION, abi: repAbi, functionName: "giveFeedback", account, chain,
+          args: [AGENT_ID, BigInt($("score").value), 0, "tutup-auction", `auction-${id}`, `${location.origin}/api/mcp`, `${location.origin}/app.html#a/${id}`, keccak256(toHex(`${TUTUP}:${id}`))] });
+        await pub.waitForTransactionReceipt({ hash: h });
+        toast("rating posted on chain ✓");
+      }
+      if (act === "recover") { await recoverReceipt(id); toast("receipt recovered from chain ✓"); }
       if (act === "settle") await send("settle", [id], "settle");
       if (act === "cancel") await send("cancel", [id], "cancel");
       vAuction(id);
@@ -722,9 +809,11 @@ async function vCreate() {
       if (lot === WIF) await need(WIF, amount + fee, "Listing WIF");
       else { await need(lot, amount, "The lot"); await need(WIF, fee, "The listing fee"); }
       const t = tokenOf(lot);
-      await ensureAllowance(lot, lot === WIF ? amount + fee : amount);
-      if (lot !== WIF) await ensureAllowance(WIF, fee);
-      await send("create", [lot, quote, amount, reserve, bond, minSold, BigInt(f.get("commitMin")) * 60n, BigInt(f.get("revealMin")) * 60n, t?.f7 || t?.f5 || NONE], "list auction");
+      await sendCalls([
+        ...await approveCall(lot, lot === WIF ? amount + fee : amount),
+        ...(lot !== WIF ? await approveCall(WIF, fee) : []),
+        { to: TUTUP, data: encodeFunctionData({ abi, functionName: "create", args: [lot, quote, amount, reserve, bond, minSold, BigInt(f.get("commitMin")) * 60n, BigInt(f.get("revealMin")) * 60n, t?.f7 || t?.f5 || NONE] }) },
+      ], "list auction");
       location.hash = `#a/${(await read("auctionCount")) - 1n}`;
     } catch (err) {
       toast(err.shortMessage || err.message, 9000);
@@ -966,7 +1055,11 @@ function vDocs() {
       <h2 class="sub">Quicknode</h2>
       <p>Reads go through our Quicknode Robinhood Chain endpoint first. Its Stock Token API add-on supplies the US session and Robinhood mint window (<code>qn_getOracleHealth</code>), wallet holdings in shares (<code>qn_getStockTokenBalances</code>), split and dividend history (<code>qn_getCorporateActions</code>) and how final a settlement is on Ethereum (<code>qn_getTransactionFinality</code>). The MCP server exposes them to agents too. The endpoint key stays server-side.</p>
       <h2 class="sub">Onchain agent identity (ERC-8004)</h2>
-      <p>Tutup's MCP server is registered in the ERC-8004 IdentityRegistry on Robinhood Chain (<code>0x8004A169…a432</code>) as <b>agent #25584</b>. Its registration file (<a href="/agent.json" target="_blank" rel="noopener">agent.json</a>) lists the MCP endpoint, so other agents can find it onchain and check its reputation.</p>
+      <p>Tutup's MCP server is registered in the ERC-8004 IdentityRegistry on Robinhood Chain (<code>0x8004A169…a432</code>) as <b>agent #25584</b>. Its registration file (<a href="/agent.json" target="_blank" rel="noopener">agent.json</a>) lists the MCP endpoint, so other agents can find it onchain. Its reputation lives in the ERC-8004 Reputation Registry (<code>0x8004BAa1…9b63</code>): only bidders in a settled auction get a "Rate this auction" button, each rating is tagged with the auction id, and Tutup's own wallets never rate it.</p>
+      <h2 class="sub">Receipts that can't be lost (drand timelock)</h2>
+      <p>Lose the salt and you can't reveal, so the bond burns. Every bid sealed here, or through the MCP server, also carries its receipt in the commit transaction, encrypted with <a href="https://github.com/drand/tlock-js" target="_blank" rel="noopener">tlock</a> to the drand quicknet round at commit close. Nobody can read it while bids are sealed. Once commits close, the drand beacon is public: "Recover my bid from chain" decrypts it on any device and checks it against your sealed hash. The contract didn't change, because Solidity ignores calldata past the arguments.</p>
+      <h2 class="sub">One confirmation (EIP-5792)</h2>
+      <p>If your wallet can batch (a smart account, or an EOA upgraded with EIP-7702), approve + commit, approve + reveal and approve + list are sent as one atomic bundle with <code>wallet_sendCalls</code>. Other wallets get the same calls one by one.</p>
       <h2 class="sub">Uniswap v3 as the alternative</h2>
       <p>Stock Tokens have deep Uniswap v3 and v4 pools on Robinhood Chain. Each auction shows what selling the same lot into the pool would return now (QuoterV2), next to Lighter's order book and Chainlink. The NVDA lot in auction #2 was bought through that pool.</p>
       <h2 class="sub">Keeper agent</h2>
@@ -988,9 +1081,11 @@ function vDocs() {
       ${PRINT_FEEDS.map((f) => `<div class="kv"><span>TutupFeed ${esc(f.pair)}</span><b><a href="${EXPLORER}/address/${f.addr}" target="_blank" rel="noopener">${short(f.addr)}</a></b></div>`).join("")}
       <div class="kv"><span>MCP endpoint</span><b>/api/mcp</b></div>
       <div class="kv"><span>ERC-8004 agent</span><b><a href="${EXPLORER}/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432/instance/25584" target="_blank" rel="noopener">#25584</a></b></div>
+      <div class="kv"><span>ERC-8004 reputation</span><b id="rep">reading…</b></div>
       <div class="kv"><span>source</span><b><a href="https://github.com/PugarHuda/tutup" target="_blank" rel="noopener">github</a></b></div>
     </div></div>
     <p class="foot">Not affiliated with, endorsed by, or officially connected with Robinhood Markets, Inc. Stock Tokens are not available to U.S. persons or in restricted jurisdictions.</p>`;
+  reputation().then((r) => { $("rep").textContent = r.count ? `${r.average.toFixed(0)}/100 from ${r.count} rating${r.count > 1 ? "s" : ""}` : "no ratings yet"; }).catch(() => { $("rep").textContent = "unavailable"; });
 }
 
 // --- router ---

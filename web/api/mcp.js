@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import TOKENS from "../tokens.json" with { type: "json" };
 import { quicknode } from "./qn.js";
 import { pythPrices } from "./pyth.js";
+import { sealReceipt, openReceipt, hasBackup } from "../tlock-backup.js";
 
 // MCP_TEST_RPC / MCP_TEST_TUTUP only exist for the local fork test (scripts/mcp-fork-test.mjs); Vercel never sets them
 const TUTUP = process.env.MCP_TEST_TUTUP || "0xd2Bfe52d5A0680DC7C3BE5BB19E1f75a568a5428";
@@ -34,10 +35,17 @@ const abi = parseAbi([
   "function commit(uint256 id, bytes32 hash)",
   "function reveal(uint256 id, uint128 qty, uint128 price, bytes32 salt)",
   "function settle(uint256 id)",
+  "event Committed(uint256 indexed id, address indexed bidder)",
   "event Settled(uint256 indexed id, uint256 clearingPrice, uint256 sold, uint256 proceeds, int256 refPrice, uint256 refUpdatedAt)",
 ]);
 const erc20 = parseAbi(["function decimals() view returns (uint8)", "function approve(address, uint256) returns (bool)", "function allowance(address, address) view returns (uint256)"]);
 const stock = parseAbi(["function uiMultiplier() view returns (uint256)", "function newUIMultiplier() view returns (uint256)", "function effectiveAt() view returns (uint256)", "function oraclePaused() view returns (bool)"]);
+const REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63", AGENT_ID = 25584n;
+const repAbi = parseAbi([
+  "function getClients(uint256) view returns (address[])",
+  "function getSummary(uint256, address[], string, string) view returns (uint64 count, int128 value, uint8 decimals)",
+  "function giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
+]);
 const feedAbi = parseAbi(["function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)"]);
 
 const sym = (a) => ALL.find((t) => t.addr.toLowerCase() === a.toLowerCase())?.sym || a;
@@ -61,6 +69,22 @@ async function auction(id) {
   };
 }
 const pub_ = ({ raw, ...a }) => a;
+const ZERO32 = "0x" + "0".repeat(64);
+const commitHash = (id, bidder, qty, price, salt) => keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes32" }], [BigInt(id), bidder, qty, price, salt]));
+
+/// Rebuild a lost receipt from the chain: the bidder's commit tx carries it, timelocked to commitEnd with drand.
+/// Checked against commitOf, so a forged or stale backup can never produce a wrong reveal.
+async function recoverReceipt(id, bidder) {
+  const [log] = (await pub.getLogs({ address: TUTUP, event: abi.find((x) => x.name === "Committed"), args: { id: BigInt(id), bidder }, fromBlock: FROM_BLOCK })).slice(-1);
+  if (!log) throw new Error(`no sealed bid from ${bidder} in auction ${id}`);
+  const tx = await pub.getTransaction({ hash: log.transactionHash });
+  if (!hasBackup(tx.input)) throw new Error("that bid was sealed without a timelocked backup, so only its receipt file can reveal it");
+  const r = await openReceipt(tx.input);
+  const onchain = await read("commitOf", [BigInt(id), bidder]);
+  if (onchain === ZERO32) throw new Error("this bid is already revealed");
+  if (commitHash(id, bidder, BigInt(r.qty), BigInt(r.price), r.salt) !== onchain) throw new Error("backup doesn't match the sealed commitment");
+  return { tutup: TUTUP, chainId: 4663, auction: String(id), bidder, ...r, recoveredFrom: log.transactionHash };
+}
 
 async function feed(addr) {
   if (!addr) return null;
@@ -83,6 +107,7 @@ export function checkArgs(name, args = {}) {
     if (want === "string" && typeof v !== "string") return `${k} must be a string`;
     if (want === "array" && !Array.isArray(v)) return `${k} must be an array`;
     if (want === "object" && (typeof v !== "object" || Array.isArray(v))) return `${k} must be an object`;
+    if (want === "boolean" && typeof v !== "boolean") return `${k} must be true or false`;
   }
   return null;
 }
@@ -95,8 +120,9 @@ const TOOLS = [
   { name: "portfolio", description: "A wallet's Robinhood Stock Token holdings in shares (multipliers applied), valued in USD from Chainlink, via Quicknode's Stock Token API. Use it to see what an agent could list.", inputSchema: { type: "object", properties: { address: { type: "string" } }, required: ["address"] } },
   { name: "corporate_actions", description: "Split and dividend history for Stock Tokens (Quicknode Stock Token API, matched to Robinhood's records). Upcoming actions freeze the oracle: a moment when sealed auctions matter.", inputSchema: { type: "object", properties: { symbols: { type: "array", items: { type: "string" } } } } },
   { name: "tx_finality", description: "How final a Robinhood Chain transaction is: soft, posted to Ethereum, safe or finalized, with estimates (Quicknode Stock Token API). Use it on a settlement before treating it as done.", inputSchema: { type: "object", properties: { tx_hash: { type: "string" } }, required: ["tx_hash"] } },
-  { name: "prepare_bid", description: "Seal a bid. Returns the salt, the commit hash, a receipt to keep (losing it means the bond burns), and the unsigned calls to send from `bidder`: approve the $WIF bond, then commit. The server never sees a key.", inputSchema: { type: "object", properties: { auction_id: { type: "number" }, bidder: { type: "string" }, quantity: { type: "string", description: "lot tokens, e.g. \"0.5\"" }, price: { type: "string", description: "quote tokens per lot token, e.g. \"160.5\"" } }, required: ["auction_id", "bidder", "quantity", "price"] } },
-  { name: "prepare_reveal", description: "Open a sealed bid during the reveal phase. Takes the receipt from prepare_bid and returns the unsigned calls: approve the payment escrow, then reveal.", inputSchema: { type: "object", properties: { receipt: { type: "object" } }, required: ["receipt"] } },
+  { name: "prepare_bid", description: "Seal a bid. Returns the salt, the commit hash, a receipt to keep (losing it means the bond burns), and the unsigned calls to send from `bidder`: approve the $WIF bond, then commit. The server never sees a key.", inputSchema: { type: "object", properties: { auction_id: { type: "number" }, bidder: { type: "string" }, quantity: { type: "string", description: "lot tokens, e.g. \"0.5\"" }, price: { type: "string", description: "quote tokens per lot token, e.g. \"160.5\"" }, backup: { type: "boolean", description: "timelock the receipt into the commit calldata (drand), default true" } }, required: ["auction_id", "bidder", "quantity", "price"] } },
+  { name: "prepare_reveal", description: "Open a sealed bid during the reveal phase. Takes the receipt from prepare_bid, or just auction_id and bidder: the receipt is then decrypted from the commit's calldata (drand timelock, readable once commits close) and checked against the sealed hash. Returns the unsigned calls: approve the payment escrow, then reveal.", inputSchema: { type: "object", properties: { receipt: { type: "object" }, auction_id: { type: "number" }, bidder: { type: "string" } } } },
+  { name: "agent_reputation", description: "Tutup's ERC-8004 reputation on Robinhood Chain: agent #25584's ratings from bidders in settled auctions (Reputation Registry), and, given a bidder who took part in a settled auction, the unsigned giveFeedback call to rate it.", inputSchema: { type: "object", properties: { rate_auction_id: { type: "number" }, rater: { type: "string" }, score: { type: "number", description: "0-100" } } } },
   { name: "prepare_settle", description: "Anyone can settle once reveals close. Returns the unsigned settle call.", inputSchema: { type: "object", properties: { auction_id: { type: "number" } }, required: ["auction_id"] } },
 ];
 
@@ -173,31 +199,49 @@ async function run(name, args = {}) {
     if (qty === 0n || qty > a.raw.lotAmount) throw new Error(`quantity must be between 0 and ${a.lotAmount}`);
     if (price < a.raw.reserve) throw new Error(`price is below the reserve ${a.reserve} ${a.quote}; the reveal would be refused`);
     const salt = toHex(randomBytes(32));
-    const hash = keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes32" }], [BigInt(a.id), bidder, qty, price, salt]));
+    const hash = commitHash(a.id, bidder, qty, price, salt);
+    // unless the agent opts out, the receipt rides along in the commit calldata, timelocked to commitEnd
+    const tail = args.backup === false ? "" : await sealReceipt({ qty, price, salt }, a.raw.commitEnd);
     return {
       receipt: { tutup: TUTUP, chainId: 4663, auction: String(a.id), bidder, qty: qty.toString(), price: price.toString(), salt },
-      warning: "Store the receipt. Without it you can't reveal, and the bond burns.",
+      warning: tail ? "Keep the receipt. If it's lost, prepare_reveal with auction_id and bidder recovers it from the chain once commits close (drand timelock)." : "Store the receipt. Without it you can't reveal, and the bond burns.",
+      timelockedBackup: tail ? { scheme: "tlock / drand quicknet", unlocksAt: a.commitEnd, bytes: tail.length / 2 } : null,
       revealWindow: { opens: a.commitEnd, closes: a.revealEnd },
       escrowAtReveal: `${formatUnits(cost(qty, price), a.raw.qd)} ${a.quote}`,
       calls: [
         call(WIF, encodeFunctionData({ abi: erc20, functionName: "approve", args: [TUTUP, a.raw.bond] }), `approve ${a.bondWif} WIF bond`),
-        call(TUTUP, encodeFunctionData({ abi, functionName: "commit", args: [BigInt(a.id), hash] }), "commit the sealed bid"),
+        call(TUTUP, encodeFunctionData({ abi, functionName: "commit", args: [BigInt(a.id), hash] }) + tail, tail ? "commit the sealed bid (receipt timelocked in calldata)" : "commit the sealed bid"),
       ],
     };
   }
   if (name === "prepare_reveal") {
-    const r = args.receipt || {};
+    if (!args.receipt && !(args.auction_id !== undefined && isAddress(args.bidder || ""))) throw new Error("pass receipt, or auction_id and bidder to recover it from the chain");
+    const r = args.receipt || await recoverReceipt(args.auction_id, getAddress(args.bidder));
     if (String(r.tutup).toLowerCase() !== TUTUP.toLowerCase() || !isAddress(r.bidder) || !/^0x[0-9a-f]{64}$/i.test(r.salt) || !/^\d+$/.test(r.qty) || !/^\d+$/.test(r.price)) throw new Error("not a Tutup receipt for this contract");
     const a = await auction(r.auction);
     if (a.phase !== "reveal") throw new Error(`auction ${a.id} is in ${a.phase}; reveals are only accepted during reveal`);
     const qty = BigInt(r.qty), price = BigInt(r.price);
     return {
+      ...(r.recoveredFrom ? { recoveredReceipt: r } : {}),
       escrow: `${formatUnits(cost(qty, price), a.raw.qd)} ${a.quote}`,
       calls: [
         call(a.raw.quote, encodeFunctionData({ abi: erc20, functionName: "approve", args: [TUTUP, cost(qty, price)] }), `approve the ${a.quote} escrow`),
         call(TUTUP, encodeFunctionData({ abi, functionName: "reveal", args: [BigInt(a.id), qty, price, r.salt] }), "reveal; the bond comes back"),
       ],
     };
+  }
+  if (name === "agent_reputation") {
+    const clients = await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getClients", args: [AGENT_ID] });
+    const [count, value, d] = clients.length ? await pub.readContract({ address: REPUTATION, abi: repAbi, functionName: "getSummary", args: [AGENT_ID, clients, "tutup-auction", ""] }) : [0n, 0n, 0];
+    const out = { agent: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584", registry: REPUTATION, ratings: Number(count), average: count ? Number(value) / 10 ** d : null, raters: clients.length };
+    if (args.rate_auction_id === undefined) return out;
+    if (!isAddress(args.rater || "")) throw new Error("rater must be an address");
+    const score = Number(args.score ?? 100);
+    if (!(score >= 0 && score <= 100)) throw new Error("score must be 0-100");
+    const a = await auction(args.rate_auction_id);
+    if (a.phase !== "settled") throw new Error(`auction ${a.id} isn't settled yet`);
+    if (!(await read("bids", [BigInt(a.id)])).some((b) => b.bidder.toLowerCase() === args.rater.toLowerCase())) throw new Error("only bidders who revealed in that auction can rate it");
+    return { ...out, calls: [call(REPUTATION, encodeFunctionData({ abi: repAbi, functionName: "giveFeedback", args: [AGENT_ID, BigInt(score), 0, "tutup-auction", `auction-${a.id}`, "https://tutup.vercel.app/api/mcp", `https://tutup.vercel.app/app.html#a/${a.id}`, keccak256(toHex(`${TUTUP}:${a.id}`))] }), `rate Tutup ${score}/100 for auction ${a.id}`)] };
   }
   if (name === "prepare_settle") {
     const a = await auction(args.auction_id);
@@ -221,7 +265,7 @@ export default async function handler(req, res) {
   try {
     if (msg.method === "initialize") {
       return reply({ protocolVersion: msg.params?.protocolVersion || "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "tutup", version: "1.0.0", erc8004: "eip155:4663:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432#25584" },
-        instructions: "Tutup runs sealed-bid batch auctions for Robinhood Chain Stock Tokens and $WIF while the market is closed. Read with list_auctions / get_auction / market_status / weekend_prints. To bid: prepare_bid during commit, keep the receipt, prepare_reveal during reveal. Every prepare_* tool returns unsigned calls for your own wallet." });
+        instructions: "Tutup runs sealed-bid batch auctions for Robinhood Chain Stock Tokens and $WIF while the market is closed. Read with list_auctions / get_auction / market_status / weekend_prints. To bid: prepare_bid during commit (the receipt is also timelocked into the commit calldata with drand), then prepare_reveal during reveal, with the receipt or just auction_id and bidder. Every prepare_* tool returns unsigned calls for your own wallet." });
     }
     if (msg.method === "ping") return reply({});
     if (msg.method === "tools/list") return reply({ tools: TOOLS });

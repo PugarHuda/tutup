@@ -108,6 +108,28 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 
 The desk labels its bids "Tutup agent wallet", and labels the test bidder and the deployer as house wallets too. They are the house's own bids, not outside demand. `scripts/keeper-fork-test.mjs` runs the full commit, no-double-bid, reveal and settle cycle on an anvil fork.
 
+## Receipts that can't be lost: drand timelock in calldata
+
+A commit-reveal bidder who loses their salt can't reveal, and their bond burns. Tutup now keeps a third copy of every receipt on chain, with no contract change:
+
+- The desk and the MCP `prepare_bid` tool encrypt `{qty, price, salt}` with [tlock](https://github.com/drand/tlock-js) to the drand quicknet round at the auction's `commitEnd`. They append the result, marked `TUTP`, to the `commit(id, hash)` calldata. Solidity ignores trailing calldata.
+- While bids are sealed nobody can decrypt it, not even us. Once commits close the drand beacon is public. "Recover my bid from chain" on the desk, or `prepare_reveal` with just `auction_id` + `bidder`, finds the bidder's `Committed` log, decrypts the calldata and checks it against `commitOf` before building the reveal.
+- Live proof: test-wallet bid on auction #1, tx [`0x8754635e…`](https://robinhoodchain.blockscout.com/tx/0x8754635e894c4c74d18327a646255d7747fd80e7a3eedf22ac63549154ed057e), 803 bytes of calldata, decryptable from 15 Nov 14:00 UTC.
+
+Source: [`web/tlock-backup.js`](web/tlock-backup.js), shared by the desk (bundled) and `api/mcp.js`.
+
+## One confirmation: EIP-5792
+
+If the wallet reports atomic batching for chain 4663 in `wallet_getCapabilities` (a smart account, or an EOA upgraded with EIP-7702), these go out as one `wallet_sendCalls` bundle: approve + list, approve + commit and approve + reveal. Every other wallet gets the same calls one at a time. Approvals are always for the exact amount.
+
+## ERC-8004 reputation
+
+Agent #25584's reputation lives in the ERC-8004 Reputation Registry on Robinhood Chain (`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`).
+
+- Only bidders in a settled auction see "Rate this auction", and each rating is tagged `tutup-auction` / `auction-<id>`.
+- The Docs page and the MCP tool `agent_reputation` read the summary. The tool also prepares the `giveFeedback` call for a qualifying bidder.
+- The registry rejects self-feedback from the agent owner, and Tutup's own wallets never rate it. It shows "no ratings yet" until real bidders rate.
+
 ## Integrations
 - **Uniswap v3 on Robinhood Chain:** each auction quotes what selling the same lot into the pool returns now, through QuoterV2 `0x33e8…a9e7`. The NVDA lot was bought through SwapRouter02 `0xcaf6…5cb2`.
 - **ERC-8004:** the MCP agent identity above.
