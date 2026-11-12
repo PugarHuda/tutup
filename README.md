@@ -103,7 +103,7 @@ claude mcp add --transport http tutup https://tutup.vercel.app/api/mcp
 [`web/api/keeper.js`](web/api/keeper.js) runs on Vercel Cron at 12:15 and 20:00 UTC, using its own wallet [`0xBCbC…D024`](https://robinhoodchain.blockscout.com/address/0xBCbC638826C37b1B9460ECf722C86DFb1a82D024). Each run it:
 
 1. **Settles** every auction whose reveal window has closed. `settle` is permissionless.
-2. **Bids** by a public rule (the whole lot at reserve + 5%), but only when the wallet holds the bond and the escrow on top of escrow it has already promised. It takes the newest lot first.
+2. **Bids** by a public rule: the whole lot at reserve + 5%. It bids only on the house's own listings (Tutup is permissionless, so a stranger could list an inflated reserve to drain it). The reveal window has to outlast the longest gap between cron runs (17h), the bond is capped at 50 WIF, and the wallet must already hold the bond and the escrow, on top of escrow it has already promised. It takes the newest lot first.
 3. **Reveals** using `salt = keccak256(key, tutup, id)`. The salt is derived, never stored, so the agent can't lose one and get its bond burned.
 
 The desk labels its bids "Tutup agent". They are the house's own bids, not outside demand. `scripts/keeper-fork-test.mjs` runs the full commit, no-double-bid, reveal and settle cycle on an anvil fork.

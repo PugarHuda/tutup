@@ -21,6 +21,13 @@ const abi = parseAbi([
   "function settle(uint256 id)",
 ]);
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)", "function allowance(address, address) view returns (uint256)", "function approve(address, uint256) returns (bool)"]);
+// Tutup is permissionless, so anyone can list a lot with an inflated reserve, a huge bond or a 5-minute reveal
+// window. The agent only bids on the house's own listings, and only when the reveal window outlasts the longest
+// gap between two cron runs (20:00 -> 12:15 next day = 16h15m), so it can never miss its own reveal.
+const HOUSE_SELLERS = new Set(["0x87252ce2342f89bdd97517d0e34d38a6b0148872"]);
+const MIN_REVEAL_WINDOW = 17n * 3600n;
+const MAX_BOND = 50n * 10n ** 18n;
+export const mayBid = (a) => HOUSE_SELLERS.has(a.seller.toLowerCase()) && a.revealEnd - a.commitEnd >= MIN_REVEAL_WINDOW && a.bond <= MAX_BOND;
 const cost = (q, p) => (q * p + 10n ** 18n - 1n) / 10n ** 18n;
 
 /// The agent's public bidding rule: the whole lot, 5% over the reserve.
@@ -63,7 +70,7 @@ export async function runKeeper() {
   for (const { i, id, seller, quote, bond, commitEnd, revealEnd, settled, sealed, qty, price } of all.reverse()) {
     if (settled) continue;
     try {
-      if (now < commitEnd && !sealed && seller.toLowerCase() !== me.toLowerCase()) {
+      if (now < commitEnd && !sealed && seller.toLowerCase() !== me.toLowerCase() && mayBid({ seller, commitEnd, revealEnd, bond })) {
         // bid only if the bond and the later escrow (on top of escrow already promised) are in the wallet
         const [wif, q] = await Promise.all([
           pub.readContract({ address: WIF, abi: erc20, functionName: "balanceOf", args: [me] }),
